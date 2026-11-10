@@ -1,0 +1,147 @@
+dataset,column,true_type,ambiguous,note
+adult,age,numeric,,
+adult,workclass,categorical,,
+adult,fnlwgt,numeric,,
+adult,education,categorical,,
+adult,education-num,categorical,yes,"ordinal 1-16, redundant with education"
+adult,marital-status,categorical,,
+adult,occupation,categorical,,
+adult,relationship,categorical,,
+adult,race,categorical,,
+adult,sex,categorical,,
+adult,capital-gain,numeric,,
+adult,capital-loss,numeric,,
+adult,hours-per-week,numeric,,
+adult,native-country,categorical,,
+adult,income,categorical,,target
+breast_cancer,id,id,,
+breast_cancer,diagnosis,categorical,,target M/B
+breast_cancer,radius_mean,numeric,,
+breast_cancer,texture_mean,numeric,,
+breast_cancer,perimeter_mean,numeric,,
+breast_cancer,area_mean,numeric,,
+breast_cancer,smoothness_mean,numeric,,
+breast_cancer,compactness_mean,numeric,,
+breast_cancer,concavity_mean,numeric,,
+breast_cancer,concave_points_mean,numeric,,
+breast_cancer,symmetry_mean,numeric,,
+breast_cancer,fractal_dimension_mean,numeric,,
+breast_cancer,radius_se,numeric,,
+breast_cancer,texture_se,numeric,,
+breast_cancer,perimeter_se,numeric,,
+breast_cancer,area_se,numeric,,
+breast_cancer,smoothness_se,numeric,,
+breast_cancer,compactness_se,numeric,,
+breast_cancer,concavity_se,numeric,,
+breast_cancer,concave_points_se,numeric,,
+breast_cancer,symmetry_se,numeric,,
+breast_cancer,fractal_dimension_se,numeric,,
+breast_cancer,radius_worst,numeric,,
+breast_cancer,texture_worst,numeric,,
+breast_cancer,perimeter_worst,numeric,,
+breast_cancer,area_worst,numeric,,
+breast_cancer,smoothness_worst,numeric,,
+breast_cancer,compactness_worst,numeric,,
+breast_cancer,concavity_worst,numeric,,
+breast_cancer,concave_points_worst,numeric,,
+breast_cancer,symmetry_worst,numeric,,
+breast_cancer,fractal_dimension_worst,numeric,,
+bank_marketing,age,numeric,,
+bank_marketing,job,categorical,,
+bank_marketing,marital,categorical,,
+bank_marketing,education,categorical,,
+bank_marketing,default,categorical,,
+bank_marketing,balance,numeric,,
+bank_marketing,housing,categorical,,
+bank_marketing,loan,categorical,,
+bank_marketing,contact,categorical,,
+bank_marketing,day,numeric,yes,day of month 1-31
+bank_marketing,month,categorical,,
+bank_marketing,duration,numeric,,
+bank_marketing,campaign,numeric,,
+bank_marketing,pdays,numeric,,-1 = never contacted (sentinel)
+bank_marketing,previous,numeric,,
+bank_marketing,poutcome,categorical,,
+bank_marketing,y,categorical,,target
+cdc_diabetes,ID,id,,
+cdc_diabetes,Diabetes_binary,categorical,,target
+cdc_diabetes,HighBP,categorical,,flag 0/1
+cdc_diabetes,HighChol,categorical,,flag 0/1
+cdc_diabetes,CholCheck,categorical,,flag 0/1
+cdc_diabetes,BMI,numeric,,
+cdc_diabetes,Smoker,categorical,,flag 0/1
+cdc_diabetes,Stroke,categorical,,flag 0/1
+cdc_diabetes,HeartDiseaseorAttack,categorical,,flag 0/1
+cdc_diabetes,PhysActivity,categorical,,flag 0/1
+cdc_diabetes,Fruits,categorical,,flag 0/1
+cdc_diabetes,Veggies,categorical,,flag 0/1
+cdc_diabetes,HvyAlcoholConsump,categorical,,flag 0/1
+cdc_diabetes,AnyHealthcare,categorical,,flag 0/1
+cdc_diabetes,NoDocbcCost,categorical,,flag 0/1
+cdc_diabetes,GenHlth,categorical,,ordinal 1-5
+cdc_diabetes,MentHlth,numeric,yes,days 0-30
+cdc_diabetes,PhysHlth,numeric,yes,days 0-30
+cdc_diabetes,DiffWalk,categorical,,flag 0/1
+cdc_diabetes,Sex,categorical,,flag 0/1
+cdc_diabetes,Age,categorical,,"ordinal, 13 bands"
+cdc_diabetes,Education,categorical,,ordinal 1-6
+cdc_diabetes,Income,categorical,,ordinal 1-8
+diabetes_130,encounter_id,id,,
+diabetes_130,patient_nbr,id,,repeated ID
+diabetes_130,race,categorical,,
+diabetes_130,gender,categorical,,
+diabetes_130,age,categorical,,bands [0-10)...
+diabetes_130,weight,categorical,,"bands, almost all missing"
+diabetes_130,admission_type_id,categorical,,integer code
+diabetes_130,discharge_disposition_id,categorical,,integer code
+diabetes_130,admission_source_id,categorical,,integer code
+diabetes_130,time_in_hospital,numeric,yes,days 1-14
+diabetes_130,payer_code,categorical,,
+diabetes_130,medical_specialty,categorical,,many levels
+diabetes_130,num_lab_procedures,numeric,,
+diabetes_130,num_procedures,numeric,yes,count 0-6
+diabetes_130,num_medications,numeric,,
+diabetes_130,number_outpatient,numeric,,count
+diabetes_130,number_emergency,numeric,,count
+diabetes_130,number_inpatient,numeric,,count
+diabetes_130,diag_1,categorical,,"ICD-9 codes, hundreds of levels"
+diabetes_130,diag_2,categorical,,"ICD-9 codes, hundreds of levels"
+diabetes_130,diag_3,categorical,,"ICD-9 codes, hundreds of levels"
+diabetes_130,number_diagnoses,numeric,yes,count 1-16
+diabetes_130,max_glu_serum,categorical,,
+diabetes_130,A1Cresult,categorical,,
+diabetes_130,metformin,categorical,,drug: No/Steady/Up/Down
+diabetes_130,repaglinide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,nateglinide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,chlorpropamide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,glimepiride,categorical,,drug: No/Steady/Up/Down
+diabetes_130,acetohexamide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,glipizide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,glyburide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,tolbutamide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,pioglitazone,categorical,,drug: No/Steady/Up/Down
+diabetes_130,rosiglitazone,categorical,,drug: No/Steady/Up/Down
+diabetes_130,acarbose,categorical,,drug: No/Steady/Up/Down
+diabetes_130,miglitol,categorical,,drug: No/Steady/Up/Down
+diabetes_130,troglitazone,categorical,,drug: No/Steady/Up/Down
+diabetes_130,tolazamide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,examide,categorical,,drug: No/Steady/Up/Down
+diabetes_130,citoglipton,categorical,,drug: No/Steady/Up/Down
+diabetes_130,insulin,categorical,,drug: No/Steady/Up/Down
+diabetes_130,glyburide-metformin,categorical,,drug: No/Steady/Up/Down
+diabetes_130,glipizide-metformin,categorical,,drug: No/Steady/Up/Down
+diabetes_130,glimepiride-pioglitazone,categorical,,drug: No/Steady/Up/Down
+diabetes_130,metformin-rosiglitazone,categorical,,drug: No/Steady/Up/Down
+diabetes_130,metformin-pioglitazone,categorical,,drug: No/Steady/Up/Down
+diabetes_130,change,categorical,,
+diabetes_130,diabetesMed,categorical,,
+diabetes_130,readmitted,categorical,,target
+pima,Pregnancies,numeric,yes,count 0-17
+pima,Glucose,numeric,,0 = missing (fake zero)
+pima,BloodPressure,numeric,,0 = missing (fake zero)
+pima,SkinThickness,numeric,,0 = missing (fake zero)
+pima,Insulin,numeric,,0 = missing (fake zero)
+pima,BMI,numeric,,0 = missing (fake zero)
+pima,DiabetesPedigreeFunction,numeric,,
+pima,Age,numeric,,
+pima,Outcome,categorical,,target 0/1
