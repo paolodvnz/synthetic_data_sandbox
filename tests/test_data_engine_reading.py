@@ -137,7 +137,7 @@ REPEAT = 10  # rows of the tiny inline files repeated, so that no column is near
 def test_semicolon_separator_and_decimal_comma():
     data = ("dose;arm\n" + "1,5;A\n2,25;B\n1,5;A\n3;B\n2,25;A\n3;B\n" * REPEAT).encode()
     inspection = inspect_csv(data)
-    assert inspection.columns["dose"].role == "numeric"
+    assert inspection.columns["dose"].kind == "numeric"     # read as numbers (3 values: a category by default)
     assert inspection.frame["dose"].tolist() == [1.5, 2.25, 1.5, 3.0, 2.25, 3.0] * REPEAT
 
 

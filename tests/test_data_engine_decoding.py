@@ -7,7 +7,7 @@ with a seed. Public API under test:
         columns in contract order, original types (int, float, datetime, text)
         numeric / date: inverse MinMax, clipped to the train range, rounded when whole numbers / days
         categorical: scores cleaned (negatives -> 0, renormalised, all-zero -> uniform), then sampled;
-                     "Other" -> "Other" (text) or a merged value in train proportions (integers)
+                     "Other" -> "Other" (text) or a merged value in train proportions (numeric codes)
     Wrong vector width -> DataEngineError("wrong_width").
     decode_checked(vectors, contract, *, seed=RANDOM_STATE) -> (pd.DataFrame, np.ndarray)
         the same table, plus a boolean per row: True when the row still pairs categorical values never
@@ -76,6 +76,22 @@ def vectors(n_rows: int = 1, **slots) -> np.ndarray:
         if column.name in slots:
             base[:, column.start:column.stop] = slots[column.name]
     return base
+
+
+def test_numbers_are_rounded_to_the_decimals_of_the_train():
+    rounded = SchemaContract(version=CONTRACT.version, width=1, dropped=[], rows={}, issues=[], columns=[
+        ContractColumn("bmi", "numeric", 0, 1, min=18.2, max=67.1, integer=False, decimals=1)])
+    scores = np.array([[0.0], [0.123456], [0.5], [1.0]], dtype=np.float32)
+    values = decode(scores, rounded)["bmi"].to_numpy()
+    assert np.array_equal(values, np.round(values, 1))
+    assert values[0] == 18.2 and values[-1] == 67.1                  # still within the train range
+    assert values[2] == round(18.2 + 0.5 * (67.1 - 18.2), 1)
+
+
+def test_numbers_without_decimals_are_not_rounded():
+    scores = np.array([[0.123456]], dtype=np.float32)
+    x = decode(vectors(1, x=scores[0]), CONTRACT)["x"].iloc[0]       # CONTRACT: decimals=None
+    assert x != round(x, 6)
 
 
 def test_output_columns_and_types():
@@ -290,7 +306,7 @@ def assert_round_trip(train: pd.DataFrame, decoded: pd.DataFrame, contract: Sche
             values = before.astype("int64") if column.integer else before
             rare = values.isin(merged)
             assert (after[~rare].to_numpy() == values[~rare].to_numpy()).all(), where
-            if column.integer:
+            if column.numeric_codes:
                 assert after[rare].isin(merged).all(), where
             else:
                 assert (after[rare] == OTHER_LABEL).all(), where

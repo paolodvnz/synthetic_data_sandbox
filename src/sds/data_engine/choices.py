@@ -23,8 +23,8 @@ class UserChoices:
     Attributes:
         excluded: Columns the user unchecked.
         included: Suspected IDs or engine-dropped columns the user wants to keep.
-        as_categorical: Whole-number columns to treat as codes/categories.
-        as_numeric: Whole-number categorical columns to treat as quantities.
+        as_categorical: Numeric columns to treat as codes/categories.
+        as_numeric: Numeric categorical columns (codes) to treat as quantities.
         unify_case: Merge text values differing only by case (needs a new inspection if changed).
     """
 
@@ -116,9 +116,9 @@ def check_names(inspection: CsvInspection, choices: UserChoices) -> list[str]:
 def fixed_reason(info: ColumnInfo) -> str | None:
     """Why the reading of a column cannot change, or None if the user may switch it.
 
-    Only whole numbers with 3 to ``MAX_CATEGORIES`` values are ambiguous (codes or quantities?).
-    With two values both readings decode to the same yes/no column; with more values One-Hot
-    becomes too large. The message is the plain-language reason shown to the user.
+    Only numbers (whole or not) with 3 to ``MAX_CATEGORIES`` values are ambiguous (codes or
+    quantities?). With two values both readings decode to the same yes/no column; with more values
+    One-Hot becomes too large. The message is the plain-language reason shown to the user.
     """
     if info.kind == "empty":
         return "it has no values"
@@ -126,8 +126,6 @@ def fixed_reason(info: ColumnInfo) -> str | None:
         return "it contains dates: it can only be kept or removed"
     if info.kind == "text":
         return "it contains text, so it cannot be treated as a quantity"
-    if not info.is_integer:
-        return "it has decimal values, so they cannot be codes"
     if info.n_distinct <= YES_NO_LEVELS:
         return "it has only two values (like yes/no): both readings give the same result"
     if info.n_distinct > MAX_CATEGORIES:
@@ -183,7 +181,7 @@ def apply_choices(inspection: CsvInspection, choices: UserChoices) -> FinalSchem
         if info.role in USABLE_ROLES:
             role = info.role
         elif brought_back and info.kind != "empty":
-            role = base_role(info.kind, info.is_integer, info.n_distinct)
+            role = base_role(info.kind, info.n_distinct)
             issues.append(Issue("column_reincluded", reinclusion_consequence(info), name))
         else:
             continue

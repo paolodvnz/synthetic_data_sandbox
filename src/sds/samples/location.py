@@ -1,8 +1,7 @@
 """Where the sample datasets live: one rule shared by the download command, the tests and the API.
 
-The folder is ``$SDS_DATA_DIR`` when that variable is set, else ``data/`` at the project root (the
-folder holding ``pyproject.toml``). The project root is found from this file's position, which is
-reliable because the app is installed in editable mode (``pip install -e .``), the only supported way.
+The folder is ``$SDS_DATA_DIR`` when that variable is set, else ``data/`` at the project root
+(``sds.config.PROJECT_ROOT``).
 """
 
 from __future__ import annotations
@@ -10,10 +9,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from sds.config import PROJECT_ROOT
+
 DATA_DIR_ENV = "SDS_DATA_DIR"
 DATA_DIR_NAME = "data"
-# src/sds/samples/location.py -> parents: samples, sds, src, <project root>
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def data_dir() -> Path:

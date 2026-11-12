@@ -23,9 +23,10 @@ import pandas as pd
 from sds.data_engine.choices import FinalSchema
 from sds.data_engine.encoding import FeatureGroup, TabularEncoder
 from sds.data_engine.preparation import PreparedData
+from sds.data_engine.thresholds_config import DECIMALS_TOLERANCE, MAX_DECIMALS
 from sds.data_engine.types import USABLE_ROLES, CsvInspection, DataEngineError, Issue
 
-CONTRACT_VERSION = 2      # 2: seen pairs of categorical slots
+CONTRACT_VERSION = 4      # 2: seen pairs of categorical slots; 3: decimals of the numeric columns; 4: decimal codes
 OTHER_LABEL = "Other"   # how merged rare text levels appear in the synthetic data
 
 
@@ -41,6 +42,9 @@ class ContractColumn:
         min: Train minimum (numeric; date: in days from ``origin``, so 0).
         max: Train maximum (numeric; date: in days from ``origin``).
         integer: Whole numbers (numeric: round when decoding; categorical: integer codes).
+        decimal_codes: Categorical codes that are numbers with decimals (0.25, 0.5, ...): decoded as floats.
+        decimals: Decimals of the train values (numeric, not whole numbers): the synthetic numbers are rounded to
+            them; ``None``: no rounding (computed values with more than ``MAX_DECIMALS``).
         origin: First train date, ISO format (date columns only).
         levels: Kept levels in slot order, original type (categorical only).
         has_other: The group ends with the "Other" slot (categorical only).
@@ -54,6 +58,8 @@ class ContractColumn:
     min: float | None = None
     max: float | None = None
     integer: bool = False
+    decimal_codes: bool = False
+    decimals: int | None = None
     origin: str | None = None
     levels: tuple = ()
     has_other: bool = False
@@ -63,12 +69,18 @@ class ContractColumn:
         """JSON-ready dict with only the fields of this role."""
         data = {"name": self.name, "role": self.role, "start": self.start, "stop": self.stop}
         if self.role == "categorical":
-            data |= {"levels": list(self.levels), "integer": self.integer, "has_other": self.has_other,
-                     "merged": [list(pair) for pair in self.merged]}
+            data |= {"levels": list(self.levels), "integer": self.integer, "decimal_codes": self.decimal_codes,
+                     "has_other": self.has_other, "merged": [list(pair) for pair in self.merged]}
         else:
             data |= {"min": self.min, "max": self.max}
-            data |= {"origin": self.origin} if self.role == "date" else {"integer": self.integer}
+            data |= {"origin": self.origin} if self.role == "date" else {"integer": self.integer,
+                                                                          "decimals": self.decimals}
         return data
+
+    @property
+    def numeric_codes(self) -> bool:
+        """Categorical codes that are numbers (whole or not): written as numbers, "Other" picks a merged value."""
+        return self.role == "categorical" and (self.integer or self.decimal_codes)
 
     @classmethod
     def from_dict(cls, data: dict) -> ContractColumn:
@@ -167,7 +179,7 @@ class SchemaContract:
         """What the LLM may know: names, types and possible values of the synthetic data.
 
         No statistics (min, max, row counts), no dropped columns, no warnings: they describe the
-        real data. Merged integer values are listed because they can appear in the synthetic CSV.
+        real data. Merged numeric codes are listed because they can appear in the synthetic CSV.
         """
         schema = []
         for c in self.columns:
@@ -175,9 +187,10 @@ class SchemaContract:
                 schema.append({"name": c.name, "type": "integer" if c.integer else "float"})
             elif c.role == "date":
                 schema.append({"name": c.name, "type": "date"})
-            elif c.integer:
+            elif c.numeric_codes:
                 values = sorted([*c.levels, *(level for level, _ in c.merged)])
-                schema.append({"name": c.name, "type": "integer category", "values": values})
+                kind = "integer category" if c.integer else "number category"
+                schema.append({"name": c.name, "type": kind, "values": values})
             else:
                 values = list(c.levels)
                 if c.has_other and OTHER_LABEL not in values:
@@ -186,13 +199,29 @@ class SchemaContract:
         return schema
 
 
-def contract_column(group: FeatureGroup, encoder: TabularEncoder, inspection: CsvInspection) -> ContractColumn:
-    """Contract entry of one encoder group."""
+def decimal_places(values: pd.Series, max_decimals: int = MAX_DECIMALS) -> int | None:
+    """Fewest decimals that write every non-missing value exactly, or ``None`` beyond ``max_decimals``.
+
+    Values parsed from text such as ``"33.6"`` are the closest floats, so rounding them gives them back exactly.
+    """
+    present = values.dropna().to_numpy(dtype=np.float64)
+    if not len(present):
+        return None
+    for decimals in range(max_decimals + 1):
+        if np.allclose(np.round(present, decimals), present, rtol=DECIMALS_TOLERANCE, atol=0):
+            return decimals
+    return None
+
+
+def contract_column(group: FeatureGroup, encoder: TabularEncoder, inspection: CsvInspection,
+                    train: pd.DataFrame) -> ContractColumn:
+    """Contract entry of one encoder group (``train``: the rows the encoder was fitted on)."""
     base = {"name": group.name, "role": group.role, "start": group.start, "stop": group.stop}
     if group.role == "categorical":
         return ContractColumn(
             **base,
             integer=group.name in encoder.integer_codes,
+            decimal_codes=group.name in encoder.decimal_codes,
             levels=group.levels,
             has_other=group.has_other,
             merged=tuple(group.merged.items()),
@@ -201,7 +230,9 @@ def contract_column(group: FeatureGroup, encoder: TabularEncoder, inspection: Cs
     if group.role == "date":
         origin = encoder.date_origins[group.name].date().isoformat()
         return ContractColumn(**base, min=low, max=high, origin=origin)
-    return ContractColumn(**base, min=low, max=high, integer=inspection.columns[group.name].is_integer)
+    integer = inspection.columns[group.name].is_integer
+    decimals = None if integer else decimal_places(train[group.name])
+    return ContractColumn(**base, min=low, max=high, integer=integer, decimals=decimals)
 
 
 def dropped_columns(inspection: CsvInspection, schema: FinalSchema, encoder: TabularEncoder) -> list[DroppedColumn]:
@@ -252,7 +283,7 @@ def build_contract(inspection: CsvInspection, schema: FinalSchema, prepared: Pre
     return SchemaContract(
         version=CONTRACT_VERSION,
         width=encoder.width,
-        columns=[contract_column(g, encoder, inspection) for g in encoder.groups],
+        columns=[contract_column(g, encoder, inspection, prepared.train) for g in encoder.groups],
         dropped=dropped_columns(inspection, schema, encoder),
         rows={"read": prepared.rows_read, "removed": prepared.rows_removed,
               "train": len(prepared.train), "holdout": len(prepared.holdout)},

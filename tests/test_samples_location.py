@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
+from sds.config import PROJECT_ROOT
 from sds.samples import DATA_DIR_ENV, SAMPLE_NAMES, data_dir, missing_samples, sample_path
-from sds.samples.location import PROJECT_ROOT
 
 
 def test_project_root_holds_the_pyproject():

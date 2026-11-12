@@ -16,7 +16,7 @@ from sds.data_engine.thresholds_config import (
 from sds.data_engine.types import ColumnInfo, Issue
 
 
-def base_role(kind: str, is_integer: bool, n_distinct: int) -> str:
+def base_role(kind: str, n_distinct: int) -> str:
     """Role of a usable column from its values alone (no drop or ID rules).
 
     Used for columns the user brings back: a re-included ID or dropped column follows the usual
@@ -26,7 +26,7 @@ def base_role(kind: str, is_integer: bool, n_distinct: int) -> str:
         return "date"
     if kind == "text":
         return "categorical"
-    if is_integer and n_distinct <= MAX_DISCRETE_LEVELS:
+    if n_distinct <= MAX_DISCRETE_LEVELS:
         return "categorical"
     return "numeric"
 
@@ -37,9 +37,10 @@ def infer_role(name: str, column: CleanColumn) -> tuple[ColumnInfo, list[Issue]]
     Order: all null / constant / near constant (fewer than ``MIN_LEVEL_ROWS`` rows differ from the
     most frequent value: learned poorly, and those few rows could identify someone) / too many
     nulls -> dropped; date -> date (before the ID rule, since daily dates can be almost unique);
-    integer or text almost unique -> suspected ID; text with too many levels -> dropped; integer
-    with few values -> categorical (codes are always whole numbers); other numbers -> numeric;
-    other text -> categorical.
+    integer or text almost unique -> suspected ID; text with too many levels -> dropped; numbers
+    with few values, whole or not -> categorical (codes, or quantities with a few possible values:
+    read as numeric they would be generated between the real values, e.g. multipliers 0.25, 0.5, 1,
+    2, 4); other numbers -> numeric; other text -> categorical.
 
     Args:
         name: Column name.
@@ -98,6 +99,7 @@ def infer_role(name: str, column: CleanColumn) -> tuple[ColumnInfo, list[Issue]]
         if n_distinct > MAX_CATEGORIES:
             return dropped(f"it has {n_distinct} different values (more than {MAX_CATEGORIES})")
         return info("categorical", "text with few distinct values"), []
-    if column.is_integer and n_distinct <= MAX_DISCRETE_LEVELS:
-        return info("categorical", f"whole numbers with only {n_distinct} distinct values"), []
+    if n_distinct <= MAX_DISCRETE_LEVELS:
+        kind = "whole numbers" if column.is_integer else "numbers"
+        return info("categorical", f"{kind} with only {n_distinct} distinct values"), []
     return info("numeric", "numbers"), []

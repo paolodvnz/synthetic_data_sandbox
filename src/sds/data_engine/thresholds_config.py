@@ -28,6 +28,10 @@ HIGH_ROW_LOSS_FRACTION = 0.50  # more rows removed -> stronger warning naming th
 MAX_LISTED_COLUMNS = 3         # columns named as responsible for the rows removed
 
 # Decoding
+MAX_DECIMALS = 10              # decimals tried for the values of a numeric column; more (computed values such
+                               # as 1/3) -> no rounding of the synthetic numbers
+DECIMALS_TOLERANCE = 1e-12     # relative difference between a value and its rounding still read as float noise
+                               # (relative: an absolute one would read 1e-10 as 0 with no decimals)
 MAX_REPAIR_PASSES = 5          # passes of the coherence repair over the rows with an unseen pair of
                                # categorical values (Adult: 25% of the rows before, 0.1% left after)
 

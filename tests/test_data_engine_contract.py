@@ -35,7 +35,8 @@ from sds.data_engine import (
     inspect_csv,
     prepare,
 )
-from sds.data_engine.contract import CONTRACT_VERSION
+from sds.data_engine.contract import CONTRACT_VERSION, decimal_places
+from sds.data_engine.thresholds_config import MAX_DECIMALS
 
 N_ROWS = 120
 STATISTIC_KEYS = {"min", "max", "merged", "origin", "rows", "count", "frequency"}
@@ -114,6 +115,63 @@ def test_a_contract_of_the_previous_version_is_refused(base):
     with pytest.raises(DataEngineError) as error:
         SchemaContract.from_dict(data)
     assert error.value.code == "unsupported_contract"
+
+
+def test_a_contract_without_decimals_is_refused(base):
+    # Version 2 had no decimals: its synthetic numbers would come out with every digit of the float.
+    data = base[0].to_dict()
+    data["version"] = 2
+    with pytest.raises(DataEngineError):
+        SchemaContract.from_dict(data)
+
+
+# --------------------------------------------------------------------------------------------
+# Decimals of the numeric columns
+# --------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("values, expected", [
+    ([33.6, 22.1, 0.0], 1),
+    ([0.627, 0.351, 1.2], 3),
+    ([1.5, 2.25, 3.0], 2),
+    ([1.0, 2.0, 7.0], 0),
+    ([0.0000003, 0.0000012], 7),             # tiny values keep their scale
+    ([0.0000003], 7),                        # alone too (an absolute tolerance would round it to 0)
+    ([33.6, np.nan, 22.1], 1),               # missing values do not count
+    ([1 / 3, 0.5], None),                    # computed values: no rounding
+    ([np.nan, np.nan], None),
+])
+def test_decimal_places(values, expected):
+    assert decimal_places(pd.Series(values)) == expected
+
+
+def test_decimal_places_cap():
+    assert decimal_places(pd.Series([10.0 ** -MAX_DECIMALS])) == MAX_DECIMALS
+    assert decimal_places(pd.Series([10.0 ** -(MAX_DECIMALS + 1)])) is None
+
+
+def test_numeric_columns_record_their_decimals_from_the_train_rows(base):
+    contract, _, _ = base
+    assert column(contract, "x").decimals == 1                      # "0.5", "1.5", ...
+    assert column(contract, "n").decimals is None                   # whole numbers are rounded anyway
+    assert column(contract, "visit").decimals is None
+
+
+def test_decimals_come_from_the_train_rows_only(base):
+    _, prepared, _ = base
+    holdout_row = int(prepared.holdout.index[0])                    # the split depends on the rows, not the values
+    columns = base_columns()
+    columns["x"][holdout_row] = "7.12345"
+    contract, again, _ = built(columns, UserChoices(excluded={"arm"}))
+    assert again.holdout.loc[holdout_row, "x"] == 7.12345           # the odd value is in the holdout...
+    assert column(contract, "x").decimals == 1                      # ...and does not count
+
+
+def test_decimals_survive_json(base):
+    contract, _, _ = base
+    data = contract.to_dict()
+    (x,) = [c for c in data["columns"] if c["name"] == "x"]
+    assert x["decimals"] == 1
+    assert column(through_json(contract), "x").decimals == 1
 
 
 # --------------------------------------------------------------------------------------------

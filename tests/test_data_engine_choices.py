@@ -120,7 +120,7 @@ def test_too_many_values_cannot_become_categories(torture):
     assert "numeric_int_wide" in problems(torture, UserChoices(as_categorical={"numeric_int_wide"}))
 
 
-def test_decimals_cannot_become_categories(torture):
+def test_decimals_with_many_values_cannot_become_categories(torture):
     assert "numeric_float" in problems(torture, UserChoices(as_categorical={"numeric_float"}))
 
 
@@ -148,8 +148,8 @@ def test_confirming_the_engine_reading_is_always_allowed(torture):
     assert not any(column.changed_by_user for column in schema.columns.values())
 
 
-def test_only_whole_numbers_with_few_values_can_change_reading(torture):
-    # Rule for the two groups of the Advanced panel: changeable = whole numbers, 3 to MAX_CATEGORIES values.
+def test_only_numbers_with_few_values_can_change_reading(torture):
+    # Rule for the two groups of the Advanced panel: changeable = numbers, 3 to MAX_CATEGORIES values.
     changeable = {name for name in DEFAULT_KEPT if fixed_reason(torture.columns[name]) is None}
     assert changeable == {"cat_int_codes"}
 

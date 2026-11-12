@@ -1,14 +1,15 @@
 """Decoding: from vectors (the VAE output) back to a table, reading only the schema contract.
 
-- numeric: inverse MinMax, clipped to the train range, rounded when the column holds whole numbers;
+- numeric: inverse MinMax, clipped to the train range, rounded to whole numbers or to the decimals of the
+  train values;
 - date: the same in whole days, then ``origin + days``;
 - categorical: the group holds probabilities (the VAE applies the softmax). One level is *sampled*
   per row, with a seed: argmax would always pick the most likely level and squash the minority
   ones. Scores are cleaned first (negatives -> 0, renormalised, all-zero -> uniform), because the
   baseline MSE loss does not produce probabilities. A one-hot vector is already a distribution, so
   ``decode(encode(x))`` gives ``x`` back without a separate argmax mode.
-- "Other": text columns write ``"Other"``; integer columns pick one of the merged values with the
-  train proportions, so the column stays made of whole numbers.
+- "Other": text columns write ``"Other"``; numeric codes (whole or not) pick one of the merged values with
+  the train proportions, so the column stays made of numbers seen in the real data.
 - coherence repair: sampling each group on its own can pair values no train row pairs (on Adult 25%
   of the rows, e.g. "education" HS-grad with "education-num" 10). In every row with a slot pair missing
   from ``contract.seen_pairs``, the conflicting column whose sampled level is the least likely (among
@@ -59,16 +60,17 @@ def group_probabilities(vectors: np.ndarray, column: ContractColumn,
 def category_values(slots: np.ndarray, column: ContractColumn, rng: np.random.Generator) -> pd.Series:
     """Levels of one categorical group from its slots."""
     is_other = slots == len(column.levels)              # the "Other" slot is always the last one
-    if column.integer:
-        values = np.zeros(len(slots), dtype=np.int64)
+    if column.numeric_codes:
+        dtype = np.int64 if column.integer else np.float64
+        values = np.zeros(len(slots), dtype=dtype)
         if column.levels:
-            kept = np.array(column.levels, dtype=np.int64)
+            kept = np.array(column.levels, dtype=dtype)
             values[~is_other] = kept[slots[~is_other]]
         if is_other.any():
-            merged = np.array([level for level, _ in column.merged], dtype=np.int64)
+            merged = np.array([level for level, _ in column.merged], dtype=dtype)
             rows = np.array([n for _, n in column.merged], dtype=float)
             values[is_other] = rng.choice(merged, size=int(is_other.sum()), p=rows / rows.sum())
-        return pd.Series(values, dtype="int64")
+        return pd.Series(values, dtype=dtype)
     labels = np.array([*column.levels, OTHER_LABEL], dtype=object)
     return pd.Series(labels[slots], dtype="str")
 
@@ -180,7 +182,11 @@ def decode_checked(vectors: np.ndarray, contract: SchemaContract, *,
             table[column.name] = pd.Timestamp(column.origin) + pd.to_timedelta(days, unit="D")
         else:
             values = unscale(block[:, 0], column)
-            table[column.name] = np.rint(values).astype(np.int64) if column.integer else values
+            if column.integer:
+                values = np.rint(values).astype(np.int64)
+            elif column.decimals is not None:
+                values = np.round(values, column.decimals)      # as many decimals as the real values
+            table[column.name] = values
     return pd.DataFrame(table, copy=False), incoherent      # the decoded columns are new: no need to copy them
 
 

@@ -71,6 +71,8 @@ class TabularEncoder:
         transformers: The fitted scikit-learn transformer of every group, in the same order.
         date_origins: First train date of every date column (day 0).
         integer_codes: Categorical columns made of whole numbers (encoded as int).
+        decimal_codes: Categorical columns made of numbers with decimals (encoded as float: never cast to int,
+            0.25 is not 0).
     """
 
     groups: list[FeatureGroup]
@@ -79,6 +81,7 @@ class TabularEncoder:
     transformers: list[OneHotEncoder | MinMaxScaler]
     date_origins: dict[str, pd.Timestamp]
     integer_codes: frozenset[str]
+    decimal_codes: frozenset[str]
 
     def transform(self, frame: pd.DataFrame) -> np.ndarray:
         """Encode rows (train or holdout) with the train parameters.
@@ -176,16 +179,16 @@ def unlearnable_issue(name: str, role: str, counts: pd.Series) -> Issue | None:
     return None
 
 
-def merged_issue(name: str, merged: dict, integer: bool) -> Issue:
+def merged_issue(name: str, merged: dict, numeric: bool) -> Issue:
     """Plain-language warning about the rare levels merged into "Other"."""
     shown = ", ".join(f"'{level}'" for level in list(merged)[:MAX_LISTED_VALUES])
     more = f" and {len(merged) - MAX_LISTED_VALUES} more" if len(merged) > MAX_LISTED_VALUES else ""
     if len(merged) == 1:
-        outcome = ("it is generated without its link to the other columns" if integer
+        outcome = ("it is generated without its link to the other columns" if numeric
                    else "it appears as 'Other' in the synthetic data")
         message = f"{shown} is rare in '{name}' (fewer than {MIN_LEVEL_ROWS} rows): {outcome}."
     else:
-        outcome = ("the synthetic data picks among them at random" if integer
+        outcome = ("the synthetic data picks among them at random" if numeric
                    else "they appear as 'Other' in the synthetic data")
         message = f"{len(merged)} rare values of '{name}' ({shown}{more}) are learned together: {outcome}."
     return Issue("levels_merged", message, name)
@@ -230,9 +233,9 @@ def fit_encoder(train: pd.DataFrame, schema: FinalSchema) -> TabularEncoder:
         raise nothing_to_learn_error(issues)
 
     date_origins = {c.name: train[c.name].min() for c in kept if c.role == "date"}
-    integer_codes = frozenset(
-        c.name for c in kept if c.role == "categorical" and pd.api.types.is_numeric_dtype(train[c.name])
-    )
+    numeric_codes = [c.name for c in kept if c.role == "categorical" and pd.api.types.is_numeric_dtype(train[c.name])]
+    integer_codes = frozenset(name for name in numeric_codes if whole_numbers(train[name]))
+    decimal_codes = frozenset(numeric_codes) - integer_codes
     groups, transformers, start = [], [], 0
     for column in kept:
         values = model_input(train[column.name], date_origins, integer_codes)
@@ -246,7 +249,7 @@ def fit_encoder(train: pd.DataFrame, schema: FinalSchema) -> TabularEncoder:
             if rare:
                 counts = values[column.name].value_counts()
                 merged = {python_value(level): int(n) for level, n in counts.items() if python_value(level) in rare}
-                issues.append(merged_issue(column.name, merged, column.name in integer_codes))
+                issues.append(merged_issue(column.name, merged, column.name in numeric_codes))
         groups.append(FeatureGroup(
             name=column.name,
             role=column.role,
@@ -259,7 +262,13 @@ def fit_encoder(train: pd.DataFrame, schema: FinalSchema) -> TabularEncoder:
         transformers.append(transformer)
         start = stop
 
-    return TabularEncoder(groups, start, issues, transformers, date_origins, integer_codes)
+    return TabularEncoder(groups, start, issues, transformers, date_origins, integer_codes, decimal_codes)
+
+
+def whole_numbers(values: pd.Series) -> bool:
+    """True when every value is a whole number (a column with missing values in the file is float)."""
+    present = values.dropna().to_numpy(dtype=np.float64)
+    return bool(np.all(present == np.floor(present)))
 
 
 def column_transformer(role: str) -> OneHotEncoder | MinMaxScaler:
