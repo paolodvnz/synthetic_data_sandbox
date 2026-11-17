@@ -1,0 +1,322 @@
+[
+ {
+  "source": "llm_domande_medico/responses.json#1",
+  "dataset": "pima",
+  "question": "Does glucose increase with age?",
+  "content": "```python\n# Compute and print the correlation between Glucose and Age\ncorr = df[\"Glucose\"].corr(df[\"Age\"])\nprint(\"Correlation between Glucose and Age:\", corr)\n\n# Scatter plot to visualise the relationship\nplt.figure()\nplt.scatter(df[\"Age\"], df[\"Glucose\"], alpha=0.7)\nplt.xlabel(\"Age\")\nplt.ylabel(\"Glucose\")\nplt.title(\"Glucose vs. Age\")\n```\n\nThe scatter plot shows how glucose values are distributed across ages, and the printed correlation coefficient indicates whether the overall trend is positive (glucose tends to increase with age) or negative.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#2",
+  "dataset": "pima",
+  "question": "What is the correlation between BMI and glucose?",
+  "content": "```python\n# Calculate the Pearson correlation between BMI and Glucose\ncorr = df['BMI'].corr(df['Glucose'])\nprint(\"Pearson correlation between BMI and Glucose:\", corr)\n\n# Scatter plot of BMI vs Glucose\nplt.figure()\nplt.scatter(df['BMI'], df['Glucose'], alpha=0.7)\nplt.title('BMI vs Glucose')\nplt.xlabel('BMI')\nplt.ylabel('Glucose')\n```\n\nThe scatter plot displays each observation with BMI on the x‑axis and Glucose on the y‑axis; the printed value is the Pearson correlation coefficient that quantifies their linear relationship.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#3",
+  "dataset": "pima",
+  "question": "Compare insulin levels between diabetic and non-diabetic patients.",
+  "content": "```python\n# Compare insulin levels for non‑diabetic (Outcome=0) vs diabetic (Outcome=1) patients\nplt.figure(figsize=(6, 4))\ndf.boxplot(column='Insulin', by='Outcome', grid=False, patch_artist=True,\n           boxprops=dict(facecolor=\"#a6cee3\"),\n           medianprops=dict(color=\"red\"))\nplt.title('Insulin Levels by Diabetes Outcome')\nplt.suptitle('')               # remove the automatic \"Boxplot grouped by Outcome\" title\nplt.xlabel('Outcome (0 = Non‑diabetic, 1 = Diabetic)')\nplt.ylabel('Insulin')\n```\n\nThe boxplot shows the distribution (median, quartiles, and outliers) of insulin measurements for each outcome group, allowing a visual comparison between diabetic and non‑diabetic patients.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#4",
+  "dataset": "pima",
+  "question": "Quanti pazienti hanno il diabete per fascia d'età?",
+  "content": "```python\n# Seleziona solo i pazienti con diabete (Outcome == 1)\ndiabetic = df[df[\"Outcome\"] == 1]\n\n# Crea fasce d'età di ampiezza 10 anni (0‑9, 10‑19, …)\nbins = range(0, df[\"Age\"].max() + 10, 10)\nlabels = [f\"{b}-{b+9}\" for b in bins[:-1]]\ndiabetic = diabetic.assign(\n    AgeGroup=pd.cut(diabetic[\"Age\"], bins=bins, labels=labels, right=False)\n)\n\n# Conta i pazienti per ciascuna fascia d'età\ncounts = diabetic[\"AgeGroup\"].value_counts().sort_index()\n\n# Disegna il grafico a barre\ncounts.plot(kind=\"bar\")\nplt.xlabel(\"Fascia d'età\")\nplt.ylabel(\"Numero di pazienti con diabete\")\nplt.title(\"Pazienti diabetici per fascia d'età\")\n```\n\nL'asse x indica le fasce d'età definite, mentre l'asse y mostra quanti pazienti con diabete (Outcome = 1) rientrano in ciascuna fascia.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#5",
+  "dataset": "pima",
+  "question": "Show the cholesterol distribution.",
+  "content": "The dataset does not contain a cholesterol column, so the requested distribution cannot be plotted.",
+  "finish_reason": "stop",
+  "kind": "text"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#6",
+  "dataset": "adult",
+  "question": "How does income differ between men and women?",
+  "content": "```python\n# Calculate the proportion of each income class within each sex\nincome_by_sex = (\n    df.groupby(['sex', 'income'])\n      .size()\n      .unstack(fill_value=0)\n)\n\n# Convert counts to percentages so the bars sum to 1 for each sex\nincome_by_sex_pct = income_by_sex.div(income_by_sex.sum(axis=1), axis=0)\n\n# Plot the percentages as a grouped bar chart\nincome_by_sex_pct.plot(kind='bar', figsize=(8, 6))\nplt.ylabel('Proportion')\nplt.title('Income distribution by sex')\nplt.legend(title='Income')\nplt.xticks(rotation=0)\n```\n\nThe chart displays, for each gender, the share of individuals with income ≤ 50K and > 50K. Taller bars indicate a larger proportion of that income group within the gender.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#7",
+  "dataset": "adult",
+  "question": "Which occupations work the most hours per week?",
+  "content": "```python\n# Average hours worked per week for each occupation, sorted from highest to lowest\navg_hours = df.groupby('occupation')['hours-per-week'].mean().sort_values(ascending=False)\n\n# Plot the results as a bar chart\nplt.figure(figsize=(10, 6))\navg_hours.plot(kind='bar')\nplt.title('Average Hours per Week by Occupation')\nplt.xlabel('Occupation')\nplt.ylabel('Average Hours per Week')\nplt.xticks(rotation=45, ha='right')\n```\n\nThe bar chart shows each occupation on the x‑axis and its average weekly working hours on the y‑axis; the tallest bars indicate the occupations that work the most hours per week.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#8",
+  "dataset": "adult",
+  "question": "Is there a relationship between education level and income?",
+  "content": "```python\n# Calculate the proportion of individuals earning >50K for each education level\nprop = (\n    df.groupby(['education', 'income'])\n      .size()\n      .unstack(fill_value=0)\n      .apply(lambda x: x / x.sum(), axis=1)['>50K']\n    .sort_index()\n)\n\n# Plot the proportions as a bar chart\nplt.figure(figsize=(10, 6))\nprop.plot(kind='bar', color='steelblue')\nplt.title('Proportion of >50K Income by Education Level')\nplt.xlabel('Education Level')\nplt.ylabel('Proportion earning >50K')\nplt.ylim(0, 1)\nplt.xticks(rotation=45, ha='right')\nplt.tight_layout()\n```  \n\nThe bar height shows the share of people with income > 50K for each education category; taller bars indicate a stronger association between higher education and higher income. Use the x‑axis labels to see which education levels correspond to those proportions.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#9",
+  "dataset": "adult",
+  "question": "Mostrami la distribuzione dell'età per stato civile.",
+  "content": "```python\n# Distribuzione dell'età per stato civile\nplt.figure(figsize=(10, 6))\ndf.boxplot(column='age', by='marital-status', grid=False)\nplt.title(\"Distribuzione dell'età per stato civile\")\nplt.suptitle(\"\")          # rimuove il titolo di default di pandas\nplt.xlabel(\"Stato civile\")\nplt.ylabel(\"Età\")\nplt.tight_layout()\n```\n\nIl grafico a scatola mostra la mediana, i quartili e gli outlier dell’età per ciascuna categoria di stato civile. Confronta la larghezza delle scatole per capire la variabilità dell’età in ogni gruppo.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses.json#10",
+  "dataset": "adult",
+  "question": "Show me the data of the oldest person.",
+  "content": "```python\n# Find the row with the maximum age\noldest_person = df.loc[df['age'].idxmax()]\n\n# Create a figure that shows this row as a table\nfig, ax = plt.subplots(figsize=(10, 2))\nax.axis('off')  # hide axes\n\n# Add the table: one row of data with column labels\ntable = ax.table(\n    cellText=[oldest_person.values],\n    colLabels=oldest_person.index,\n    loc='center',\n    cellLoc='center'\n)\n\ntable.auto_set_font_size(False)\ntable.set_fontsize(10)\nplt.title('Data of the Oldest Person')\n```\n\nThe figure presents a single‑row table where each column label corresponds to a variable in the dataset and the cells show the values for the oldest individual. This lets you see all of that person's information at a glance.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#1",
+  "dataset": "pima",
+  "question": "Does glucose increase with age?",
+  "content": "```python\n# Compute average glucose for each age\nage_glucose = df.groupby('Age')['Glucose'].mean().sort_index()\n\n# Correlation between age and glucose\ncorr = df['Age'].corr(df['Glucose'])\n\n# Plot\nfig, ax = plt.subplots(figsize=(8, 5))\nage_glucose.plot(ax=ax, marker='o')\nax.set_xlabel('Age')\nax.set_ylabel('Mean Glucose')\nax.set_title('Mean Glucose by Age')\nfig.tight_layout()\n\n# Print the correlation coefficient\nprint(f'Correlation (Age vs Glucose): {corr:.2f}')\n```\n\nThe line chart shows how the average glucose level changes as age increases; an upward trend would suggest glucose tends to rise with age. The printed correlation value quantifies the strength and direction of that relationship.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#2",
+  "dataset": "pima",
+  "question": "What is the correlation between BMI and glucose?",
+  "content": "```python\n# Calculate the Pearson correlation between BMI and Glucose\ncorr = df[\"BMI\"].corr(df[\"Glucose\"])\nprint(f\"Correlation (BMI vs Glucose): {corr:.2f}\")\n\n# Scatter plot to visualise the relationship\nfig, ax = plt.subplots(figsize=(6, 4))\ndf.plot.scatter(x=\"BMI\", y=\"Glucose\", ax=ax, alpha=0.6, edgecolor=\"k\")\nax.set_title(\"BMI vs. Glucose\")\nax.set_xlabel(\"BMI\")\nax.set_ylabel(\"Glucose\")\nfig.tight_layout()\n```\n\nThe scatter plot shows how glucose values tend to vary with BMI, and the printed number gives their Pearson correlation.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#3",
+  "dataset": "pima",
+  "question": "Compare insulin levels between diabetic and non-diabetic patients.",
+  "content": "```python\n# Compare insulin levels between diabetic (Outcome=1) and non‑diabetic (Outcome=0) patients\nfig, ax = plt.subplots(figsize=(6, 4))\n\n# Boxplot of Insulin by Outcome (natural order 0 → 1)\ndf.boxplot(column='Insulin', by='Outcome', ax=ax, grid=False)\n\n# Clean up the default title that pandas adds\nax.set_title('Insulin levels by diabetes outcome')\nax.set_xlabel('Outcome (0 = Non‑diabetic, 1 = Diabetic)')\nax.set_ylabel('Insulin (µU/mL)')\n\n# Remove the automatic “Outcome” subtitle\nplt.suptitle('')\n\nfig.tight_layout()\n\n# Print average insulin for each group\nmeans = df.groupby('Outcome')['Insulin'].mean().round(2)\nprint(f\"Mean insulin (Outcome=0): {means.loc[0]}, Mean insulin (Outcome=1): {means.loc[1]}\")\n```\n\nThe boxplot shows the distribution of insulin values for the two outcome groups, while the printed numbers give the average insulin level for each group.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#4",
+  "dataset": "pima",
+  "question": "Quanti pazienti hanno il diabete per fascia d'età?",
+  "content": "```python\n# Create age bands of 10‑year intervals\nage_min = int(df[\"Age\"].min() // 10 * 10)\nage_max = int(df[\"Age\"].max() // 10 * 10 + 10)\nbins = list(range(age_min, age_max + 1, 10))\n\ndf[\"AgeBand\"] = pd.cut(df[\"Age\"], bins=bins, right=False)\n\n# Count diabetics (Outcome == 1) in each age band\ndiabetic_counts = (\n    df[df[\"Outcome\"] == 1]\n    .groupby(\"AgeBand\")\n    .size()\n    .reindex(pd.IntervalIndex.from_breaks(bins, closed=\"left\"))\n    .fillna(0)\n    .astype(int)\n)\n\n# Plot the counts\nfig, ax = plt.subplots(figsize=(8, 5))\ndiabetic_counts.plot(kind=\"bar\", ax=ax, color=\"#ff6666\")\nax.set_xlabel(\"Fascia d'età\")\nax.set_ylabel(\"Numero di pazienti con diabete\")\nax.set_title(\"Pazienti diabetici per fascia d'età\")\nax.tick_params(axis=\"x\", rotation=45)\nfig.tight_layout()\n\n# Print the numeric summary\nprint(diabetic_counts.round(2))\n```\n\nIl grafico a barre mostra quanti pazienti hanno il diabete (Outcome = 1) in ciascuna fascia d'età definita. L'asse x indica le fasce di età e l'asse y il numero corrispondente di pazienti diabetici.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#5",
+  "dataset": "pima",
+  "question": "Show the cholesterol distribution.",
+  "content": "The dataset does not contain a cholesterol column, so this request cannot be fulfilled.",
+  "finish_reason": "stop",
+  "kind": "text"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#6",
+  "dataset": "adult",
+  "question": "How does income differ between men and women?",
+  "content": "```python\n# Compare income distribution between men and women\n# 1. Compute counts and percentages of each income category per sex\ncounts = df.groupby(['sex', 'income']).size().unstack(fill_value=0)\n\n# Convert counts to percentages for easier visual comparison\npercentages = counts.div(counts.sum(axis=1), axis=0) * 100\n\n# 2. Plot side‑by‑side bar chart of the percentages\nfig, ax = plt.subplots(figsize=(8, 5))\npercentages.plot(kind='bar', ax=ax)\n\n# Add labels and tidy up the layout\nax.set_ylabel('Percentage of respondents')\nax.set_xlabel('Sex')\nax.set_title('Income distribution by sex')\nax.legend(title='Income')\nfig.tight_layout()\n\n# 3. Print the share of >50K earners for each sex and the absolute difference\nshare_men = percentages.loc['Male', '>50K']\nshare_women = percentages.loc['Female', '>50K']\ndiff = share_men - share_women\nprint(f\"Share >50K (Male): {share_men:.2f}%\")\nprint(f\"Share >50K (Female): {share_women:.2f}%\")\nprint(f\"Absolute difference (Male – Female): {diff:.2f}%\")\n```\n\nThe bar chart shows the proportion of each income category for men and women; the printed numbers give the exact percentages of > 50K earners and how much higher (or lower) it is for men compared to women.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#7",
+  "dataset": "adult",
+  "question": "Which occupations work the most hours per week?",
+  "content": "```python\n# Compute average hours-per-week for each occupation and sort descending\navg_hours = df.groupby('occupation')['hours-per-week'].mean().sort_values(ascending=False)\n\n# Plot\nfig, ax = plt.subplots(figsize=(10, 6))\navg_hours.plot(kind='bar', ax=ax, color='steelblue')\nax.set_xlabel('Occupation')\nax.set_ylabel('Average hours per week')\nax.set_title('Average Weekly Working Hours by Occupation')\nplt.xticks(rotation=45, ha='right')\nfig.tight_layout()\n\n# Print the highest average value\nprint(round(avg_hours.iloc[0], 2))\n```\n\nThe bar chart shows each occupation on the x‑axis ordered from the highest to the lowest average weekly hours, with the bar height indicating the average hours worked. The printed number is the maximum average hours per week among all occupations.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#8",
+  "dataset": "adult",
+  "question": "Is there a relationship between education level and income?",
+  "content": "```python\n# Map income to a binary indicator: 1 for >50K, 0 for <=50K\ndf['income_binary'] = (df['income'] == '>50K').astype(int)\n\n# Aggregate by education (using the numeric ordering)\nedu_stats = (\n    df.groupby(['education', 'education-num'])\n      .agg(total=('income_binary', 'size'),\n           high_income=('income_binary', 'sum'))\n      .reset_index()\n      .sort_values('education-num')\n)\n\n# Percentage of people with >50K in each education level\nedu_stats['high_income_pct'] = edu_stats['high_income'] / edu_stats['total'] * 100\n\n# Plot\nfig, ax = plt.subplots(figsize=(10, 6))\nedu_stats.plot(\n    x='education',\n    y='high_income_pct',\n    kind='bar',\n    ax=ax,\n    legend=False,\n    color='steelblue'\n)\nax.set_xlabel('Education Level')\nax.set_ylabel('Percent with >50K income')\nax.set_title('Proportion of High Income by Education Level')\nplt.xticks(rotation=45, ha='right')\nfig.tight_layout()\n\n# Correlation between numeric education level and high‑income indicator\ncorr = df['education-num'].corr(df['income_binary'])\nprint(f'Correlation between education level and high income: {corr:.2f}')\n```\n\nThe bar chart shows, for each education level (ordered from lowest to highest), the percentage of people whose income exceeds 50 K. Higher bars suggest a stronger association between that education level and higher income.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#9",
+  "dataset": "adult",
+  "question": "Mostrami la distribuzione dell'età per stato civile.",
+  "content": "```python\n# Distribution of age by marital status\n# 1. Order marital-status by median age\nmedian_age = df.groupby('marital-status')['age'].median().sort_values()\nordered_status = median_age.index.tolist()\ndf['marital-status'] = pd.Categorical(df['marital-status'],\n                                      categories=ordered_status,\n                                      ordered=True)\n\n# 2. Plot a boxplot of age for each marital status\nfig, ax = plt.subplots(figsize=(8, 5))\ndf.boxplot(column='age', by='marital-status', ax=ax, grid=False)\n\n# 3. Tidy up the plot\nax.set_title('Distribuzione dell\\'età per stato civile')\nax.set_xlabel('Stato civile')\nax.set_ylabel('Età')\nplt.suptitle('')                     # remove the automatic \"Boxplot grouped by ...\"\nax.tick_params(axis='x', rotation=45)\nfig.tight_layout()\n\n# 4. Print the median ages (rounded to 2 decimals)\nprint(\"Età mediana per stato civile:\")\nprint(median_age.round(2))\n```\n\nIl grafico a scatola mostra la distribuzione dell’età all’interno di ciascun stato civile, evidenziando mediana, quartili e valori anomali. Le etichette sull’asse delle x indicano i diversi stati civili ordinati dalla più giovane alla più anziana mediana.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v2.json#10",
+  "dataset": "adult",
+  "question": "Show me the data of the oldest person.",
+  "content": "The dataset cannot provide a single‑row summary such as the oldest person's full record, as only aggregated summaries are allowed.",
+  "finish_reason": "stop",
+  "kind": "text"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#1",
+  "dataset": "pima",
+  "question": "Does glucose increase with age?",
+  "content": "```python\n# Scatter plot of Glucose vs Age with correlation coefficient\nfig, ax = plt.subplots(figsize=(8, 5))\n\n# scatter\ndf.plot.scatter(x='Age', y='Glucose', ax=ax, alpha=0.6, color='steelblue')\n\nax.set_xlabel('Age (years)')\nax.set_ylabel('Glucose')\nax.set_title('Glucose level by Age')\n\n# correlation between Age and Glucose\ncorr = df['Age'].corr(df['Glucose'])\nprint(f'Correlation: {corr:.2f}')\n\nfig.tight_layout()\n```\n\nThe scatter plot visualizes how glucose measurements vary across ages; an upward‑sloping cloud of points would indicate higher glucose with older age. The printed correlation number quantifies that linear relationship (positive → increase, negative → decrease).",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#2",
+  "dataset": "pima",
+  "question": "What is the correlation between BMI and glucose?",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(6, 4))\ndf.plot.scatter(x='Glucose', y='BMI', ax=ax, alpha=0.6)\ncorr = df['BMI'].corr(df['Glucose'])\nprint(f'Correlation: {corr:.2f}')\nfig.tight_layout()\n```\n\nThe scatter plot shows how BMI varies with glucose levels; a tighter, upward‑sloping pattern indicates a positive correlation, while a more dispersed cloud suggests little or no linear relationship. The printed number quantifies that linear relationship.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#3",
+  "dataset": "pima",
+  "question": "Compare insulin levels between diabetic and non-diabetic patients.",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(6, 4))\ndf.boxplot(column='Insulin', by='Outcome', ax=ax, grid=False)\nax.set_title('Insulin levels by Diabetes outcome')\nax.set_xlabel('Outcome (0 = Non‑diabetic, 1 = Diabetic)')\nax.set_ylabel('Insulin')\nplt.suptitle('')  # remove the automatic subtitle\nfig.tight_layout()\n```\n\nThe box plot displays the distribution of insulin measurements for non‑diabetic (0) and diabetic (1) patients; compare the medians and the spread of the boxes to see how the groups differ.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#4",
+  "dataset": "pima",
+  "question": "Quanti pazienti hanno il diabete per fascia d'età?",
+  "content": "```python\nimport numpy as np\n\n# Create 10‑year age bands (0‑9, 10‑19, …) and label them\nbins = np.arange(0, df[\"Age\"].max() + 10, 10)\nlabels = [f\"{int(b)}-{int(b+9)}\" for b in bins[:-1]]\ndf[\"AgeBand\"] = pd.cut(df[\"Age\"], bins=bins, labels=labels, right=False)\n\n# Count diabetics (Outcome == 1) in each band\ndiabetes_by_age = df[df[\"Outcome\"] == 1].groupby(\"AgeBand\").size()\n\n# Plot\nfig, ax = plt.subplots(figsize=(8, 5))\ndiabetes_by_age.plot(kind=\"bar\", ax=ax, color=\"steelblue\")\nax.set_xlabel(\"Fascia d'età\")\nax.set_ylabel(\"Numero di pazienti con diabete\")\nax.set_title(\"Pazienti con diabete per fascia d'età\")\nfig.tight_layout()\n```\n\nIl grafico a barre mostra il numero di pazienti con diabete (Outcome = 1) per ciascuna fascia d’età. Le fasce sono ordinate dal più giovane al più anziano, così è facile vedere quale gruppo d’età presenta più casi.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#5",
+  "dataset": "pima",
+  "question": "Show the cholesterol distribution.",
+  "content": "The dataset does not contain a cholesterol column, so the distribution cannot be shown. Please ask for a chart based on one of the available variables.",
+  "finish_reason": "stop",
+  "kind": "text"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#6",
+  "dataset": "adult",
+  "question": "How does income differ between men and women?",
+  "content": "```python\n# Income distribution by sex\nfig, ax = plt.subplots(figsize=(8, 6))\n\n# proportion of each income class within each sex\nincome_share = df.groupby('sex')['income'].value_counts(normalize=True).unstack()\n\nincome_share.plot(kind='bar', ax=ax)\nax.set_ylabel('Proportion')\nax.set_title('Income distribution by sex')\nax.legend(title='Income')\nfig.tight_layout()\n```\n\nThe bar chart displays the share of “<=50K” and “>50K” earners for men and women; taller bars indicate a higher proportion of that income class within each gender. Compare the heights of the “>50K” bars to see how the high‑income share differs between the sexes.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#7",
+  "dataset": "adult",
+  "question": "Which occupations work the most hours per week?",
+  "content": "```python\n# Calculate average hours per week for each occupation and sort descending\navg_hours = (\n    df.groupby('occupation')['hours-per-week']\n      .mean()\n      .sort_values(ascending=False)\n)\n\n# Plot\nfig, ax = plt.subplots(figsize=(10, 6))\navg_hours.plot(kind='bar', ax=ax, color='steelblue')\n\nax.set_xlabel('Occupation')\nax.set_ylabel('Average hours per week')\nax.set_title('Average weekly hours worked by occupation')\nax.tick_params(axis='x', rotation=45)   # rotate labels for readability\nfig.tight_layout()\n```\n\nThe bar chart displays each occupation on the horizontal axis and its average weekly working hours on the vertical axis; taller bars indicate occupations that tend to work more hours per week.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#8",
+  "dataset": "adult",
+  "question": "Is there a relationship between education level and income?",
+  "content": "```python\n# Relationship between education level and proportion of high income (>50K)\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\n# Calculate share of >50K for each education level\nincome_share = (\n    df.groupby('education')['income']\n      .apply(lambda s: (s == '>50K').mean())\n)\n\n# Order education levels by the numeric education code (natural order)\nedu_order = (\n    df[['education', 'education-num']]\n      .drop_duplicates()\n      .sort_values('education-num')\n      .set_index('education')\n      .index\n)\nincome_share = income_share.reindex(edu_order)\n\n# Plot\nfig, ax = plt.subplots(figsize=(10, 6))\nincome_share.plot(kind='bar', ax=ax, color='steelblue')\nax.set_xlabel('Education level')\nax.set_ylabel('Proportion with income > 50K')\nax.set_title('Proportion of high income by education level')\nfig.tight_layout()\n```\n\nThe bar height shows the fraction of people earning more than 50 K for each education level; higher bars indicate a stronger association with high income.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#9",
+  "dataset": "adult",
+  "question": "Mostrami la distribuzione dell'età per stato civile.",
+  "content": "```python\n# Distribution of age by marital status\nfig, ax = plt.subplots(figsize=(8, 5))\n\n# Box plot of age for each marital-status category\ndf.boxplot(column='age', by='marital-status', ax=ax, grid=False)\n\n# Clean up the default titles added by pandas\nax.set_title('Distribuzione dell\\'età per stato civile')\nax.set_xlabel('Stato civile')\nax.set_ylabel('Età')\nfig.suptitle('')  # remove the automatic \"age by marital-status\" subtitle\n\n# Rotate x‑axis labels if they overlap\nplt.setp(ax.get_xticklabels(), rotation=45, ha='right')\n\nfig.tight_layout()\n```\n\nIl grafico mostra, per ciascun stato civile, la distribuzione dell’età mediante una scatola (box‑plot) con mediana, quartili e possibili outlier. Confronta visivamente le differenze di età tra i vari gruppi di stato civile.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_domande_medico/responses_v3.json#10",
+  "dataset": "adult",
+  "question": "Show me the data of the oldest person.",
+  "content": "The dataset is synthetic, so it does not contain real individuals; therefore I can’t show a genuine “oldest person.” Instead, you could ask about the age distribution (e.g., a histogram of ages) to see how ages are spread in the data.",
+  "finish_reason": "stop",
+  "kind": "text"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#pima_followup_1",
+  "dataset": "pima",
+  "question": "Compare glucose between diabetic and non-diabetic patients.",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(8, 6))\ndf.boxplot(column='Glucose', by='Outcome', ax=ax, grid=False)\nax.set_title('Glucose distribution by diabetes outcome')\nax.set_xlabel('Outcome (0 = non‑diabetic, 1 = diabetic)')\nax.set_ylabel('Glucose')\nplt.suptitle('')  # remove the automatic pandas title\nfig.tight_layout()\n```\n\nThe boxplot shows the median, inter‑quartile range, and outliers of glucose levels for non‑diabetic (0) and diabetic (1) patients, letting you compare their distributions visually.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#pima_followup_2",
+  "dataset": "pima",
+  "question": "And for BMI?",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(8, 6))\ndf.boxplot(column='BMI', by='Outcome', ax=ax, grid=False)\nax.set_title('BMI distribution by diabetes outcome')\nax.set_xlabel('Outcome (0 = non‑diabetic, 1 = diabetic)')\nax.set_ylabel('BMI')\nplt.suptitle('')  # remove pandas automatic title\nfig.tight_layout()\n```\n\nThe boxplot visualizes how BMI values differ between non‑diabetic (0) and diabetic (1) patients, showing median, spread, and any extreme values for each group.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#pima_followup_3",
+  "dataset": "pima",
+  "question": "Now split it by age band.",
+  "content": "```python\n# Create age bands (10‑year intervals)\nage_min = df['Age'].min()\nage_max = df['Age'].max()\nbins = list(range((age_min // 10) * 10, ((age_max // 10) + 2) * 10, 10))\nlabels = [f'{b}-{b+9}' for b in bins[:-1]]\ndf['AgeBand'] = pd.cut(df['Age'], bins=bins, labels=labels, right=False)\n\n# Plot glucose distribution by age band and diabetes outcome\nfig, ax = plt.subplots(figsize=(10, 6))\ndf.boxplot(column='Glucose', by=['AgeBand', 'Outcome'], ax=ax, grid=False)\nax.set_title('Glucose by Age Band and Diabetes Outcome')\nax.set_xlabel('Age Band – Outcome (0 = non‑diabetic, 1 = diabetic)')\nax.set_ylabel('Glucose')\nplt.suptitle('')          # remove pandas automatic title\nax.tick_params(axis='x', rotation=45)  # rotate labels for readability\nfig.tight_layout()\n```\n\nThe boxplot shows, for each age band, how glucose levels differ between non‑diabetic (0) and diabetic (1) patients, allowing you to compare their distributions across ages.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#adult_followup_1",
+  "dataset": "adult",
+  "question": "How does income differ between men and women?",
+  "content": "```python\n# Compare the share of people earning >50K between women and men\nshare = (\n    df.groupby('sex')['income']\n      .value_counts(normalize=True)\n      .unstack()\n      .loc[:, '>50K']          # proportion earning >50K\n      .reindex(['Female', 'Male'])   # natural order\n)\n\nfig, ax = plt.subplots(figsize=(6, 4))\nshare.plot(kind='bar', ax=ax, color='steelblue', edgecolor='k')\nax.set_ylabel('Proportion earning >50K')\nax.set_xlabel('Sex')\nax.set_title('High‑income share by sex')\n# annotate bars with percentages\nfor p in ax.patches:\n    ax.annotate(f'{p.get_height():.2%}', \n                (p.get_x() + p.get_width() / 2, p.get_height()),\n                ha='center', va='bottom', fontsize=9)\nfig.tight_layout()\n```\n\nThe bar chart shows, for each gender, what fraction of the synthetic population earns more than $50 K. Higher bars indicate a larger share of high‑income individuals.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#adult_followup_2",
+  "dataset": "adult",
+  "question": "E per razza?",
+  "content": "```python\n# Share of people earning >50K for each race\nshare = (\n    df.groupby('race')['income']\n      .value_counts(normalize=True)\n      .unstack()\n      .loc[:, '>50K']               # proportion with income >50K\n      .sort_values(ascending=False)  # order by share\n)\n\nfig, ax = plt.subplots(figsize=(8, 5))\nshare.plot(kind='bar', ax=ax, color='teal', edgecolor='k')\nax.set_ylabel('Proporzione con reddito >50K')\nax.set_xlabel('Razza')\nax.set_title('Quota di alto reddito per razza')\n# annotate bars\nfor p in ax.patches:\n    ax.annotate(f'{p.get_height():.2%}',\n                (p.get_x() + p.get_width() / 2, p.get_height()),\n                ha='center', va='bottom', fontsize=9)\nfig.tight_layout()\n```\n\nIl grafico a barre mostra, per ciascuna categoria di razza, la percentuale di individui sintetici con reddito superiore a 50 K. Barrette più alte indicano una quota maggiore di alto reddito all’interno di quella razza.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#adult_followup_3",
+  "dataset": "adult",
+  "question": "Show it as percentages.",
+  "content": "```python\n# Percentuale di persone con reddito >50K per ciascuna razza\nshare = (\n    df.groupby('race')['income']\n      .value_counts(normalize=True)\n      .unstack()\n      .loc[:, '>50K']               # proporzione >50K\n      .sort_values(ascending=False)  # ordine decrescente\n)\n\nfig, ax = plt.subplots(figsize=(8, 5))\nshare.plot(kind='bar', ax=ax, color='cornflowerblue', edgecolor='k')\nax.set_ylabel('Percentuale di alto reddito')\nax.set_xlabel('Razza')\nax.set_title('Quota di reddito >50K per razza')\n# mostra i valori in percentuale sull’asse y\nax.yaxis.set_major_formatter(lambda x, _: f'{x:.0%}')\n# annota ogni barra con la percentuale\nfor p in ax.patches:\n    ax.annotate(f'{p.get_height():.2%}',\n                (p.get_x() + p.get_width() / 2, p.get_height()),\n                ha='center', va='bottom', fontsize=9)\nfig.tight_layout()\n```\n\nIl diagramma a barre visualizza, per ogni categoria di razza, la percentuale di individui sintetici il cui reddito supera i 50 K. Barrette più lunghe indicano una quota più alta di alto reddito nella rispettiva razza.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#pima_control_1",
+  "dataset": "pima",
+  "question": "And for BMI?",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(8, 5))\n# Histogram of BMI values\ndf['BMI'].plot(kind='hist', bins=30, edgecolor='black', ax=ax, color='skyblue')\nax.set_xlabel('BMI')\nax.set_ylabel('Count')\nax.set_title('Distribution of BMI')\nfig.tight_layout()\n```\n\nThe chart shows how BMI values are spread across the dataset, with higher bars indicating more patients in that BMI range. Use the x‑axis to see the BMI intervals and the y‑axis for the number of patients in each interval.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#fix_key_error",
+  "dataset": "pima",
+  "question": "Compare glucose between diabetic and non-diabetic patients.",
+  "content": "```python\nfig, ax = plt.subplots()\ndf.boxplot(column='Glucose', by='Outcome', ax=ax)\nax.set_xlabel('Outcome (0 = non‑diabetic, 1 = diabetic)')\nax.set_ylabel('Glucose')\nplt.suptitle('')          # remove the automatic title added by boxplot\nfig.tight_layout()\n```\nThe two boxes show the glucose distribution for patients without diabetes (Outcome = 0) and with diabetes (Outcome = 1).",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#fix_forbidden_import",
+  "dataset": "pima",
+  "question": "Show the distribution of BMI.",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(8, 5))\ndf['BMI'].hist(ax=ax, bins=30, edgecolor='black')\nax.set_xlabel('BMI')\nax.set_ylabel('Count')\nfig.tight_layout()\n```\nThis histogram displays the frequency of different BMI values in the synthetic dataset.",
+  "finish_reason": "stop",
+  "kind": "chart"
+ },
+ {
+  "source": "llm_storico_correzione/responses.json#fix_type_error",
+  "dataset": "adult",
+  "question": "What is the average education level by income?",
+  "content": "```python\nfig, ax = plt.subplots(figsize=(6, 4))\n\n# Compute the average numeric education level for each income group\navg_edu = df.groupby('income')['education-num'].mean()\n\n# Plot as a bar chart\navg_edu.plot(kind='bar', ax=ax, color='steelblue')\nax.set_ylabel('Average education level (numeric)')\nax.set_xlabel('Income')\nax.set_title('Average education level by income')\nfig.tight_layout()\n```",
+  "finish_reason": "stop",
+  "kind": "chart"
+ }
+]

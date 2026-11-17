@@ -3,6 +3,7 @@
 Used by the regression tests of every block (``test_data_engine_regression.py``,
 ``test_vae_regression.py``). They are session-scoped because ``inspect_csv`` on all files takes ~11 s.
 Tests that use them are skipped when the CSVs are missing (download them with ``sds-download-samples``).
+Also: every test runs with ``LLM_API_KEY`` empty (``no_llm_key``).
 """
 
 from pathlib import Path
@@ -11,6 +12,15 @@ import pytest
 
 from sds.data_engine import UserChoices, apply_choices, fit_encoder, inspect_csv, prepare
 from sds.samples import SAMPLE_NAMES, data_dir, missing_samples
+
+
+@pytest.fixture(autouse=True)
+def no_llm_key(monkeypatch):
+    """No test reads the developer's .env: an empty variable wins over the file, so every app is "not configured".
+
+    Tests that need a provider give the app a fake client; the same on a clone, where no .env exists.
+    """
+    monkeypatch.setenv("LLM_API_KEY", "")
 
 
 @pytest.fixture(scope="session")

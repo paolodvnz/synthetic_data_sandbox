@@ -1,0 +1,259 @@
+{
+ "pima": [
+  {
+   "name": "Pregnancies",
+   "type": "integer category",
+   "values": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    17
+   ]
+  },
+  {
+   "name": "Glucose",
+   "type": "integer"
+  },
+  {
+   "name": "BloodPressure",
+   "type": "integer"
+  },
+  {
+   "name": "SkinThickness",
+   "type": "integer"
+  },
+  {
+   "name": "Insulin",
+   "type": "integer"
+  },
+  {
+   "name": "BMI",
+   "type": "float"
+  },
+  {
+   "name": "DiabetesPedigreeFunction",
+   "type": "float"
+  },
+  {
+   "name": "Age",
+   "type": "integer"
+  },
+  {
+   "name": "Outcome",
+   "type": "integer category",
+   "values": [
+    0,
+    1
+   ]
+  }
+ ],
+ "adult": [
+  {
+   "name": "age",
+   "type": "integer"
+  },
+  {
+   "name": "workclass",
+   "type": "category",
+   "values": [
+    "Federal-gov",
+    "Local-gov",
+    "Private",
+    "Self-emp-inc",
+    "Self-emp-not-inc",
+    "State-gov",
+    "Other"
+   ]
+  },
+  {
+   "name": "fnlwgt",
+   "type": "integer"
+  },
+  {
+   "name": "education",
+   "type": "category",
+   "values": [
+    "10th",
+    "11th",
+    "12th",
+    "1st-4th",
+    "5th-6th",
+    "7th-8th",
+    "9th",
+    "Assoc-acdm",
+    "Assoc-voc",
+    "Bachelors",
+    "Doctorate",
+    "HS-grad",
+    "Masters",
+    "Preschool",
+    "Prof-school",
+    "Some-college"
+   ]
+  },
+  {
+   "name": "education-num",
+   "type": "integer category",
+   "values": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+   ]
+  },
+  {
+   "name": "marital-status",
+   "type": "category",
+   "values": [
+    "Divorced",
+    "Married-AF-spouse",
+    "Married-civ-spouse",
+    "Married-spouse-absent",
+    "Never-married",
+    "Separated",
+    "Widowed"
+   ]
+  },
+  {
+   "name": "occupation",
+   "type": "category",
+   "values": [
+    "Adm-clerical",
+    "Craft-repair",
+    "Exec-managerial",
+    "Farming-fishing",
+    "Handlers-cleaners",
+    "Machine-op-inspct",
+    "Other-service",
+    "Priv-house-serv",
+    "Prof-specialty",
+    "Protective-serv",
+    "Sales",
+    "Tech-support",
+    "Transport-moving",
+    "Other"
+   ]
+  },
+  {
+   "name": "relationship",
+   "type": "category",
+   "values": [
+    "Husband",
+    "Not-in-family",
+    "Other-relative",
+    "Own-child",
+    "Unmarried",
+    "Wife"
+   ]
+  },
+  {
+   "name": "race",
+   "type": "category",
+   "values": [
+    "Amer-Indian-Eskimo",
+    "Asian-Pac-Islander",
+    "Black",
+    "Other",
+    "White"
+   ]
+  },
+  {
+   "name": "sex",
+   "type": "category",
+   "values": [
+    "Female",
+    "Male"
+   ]
+  },
+  {
+   "name": "capital-gain",
+   "type": "integer"
+  },
+  {
+   "name": "capital-loss",
+   "type": "integer"
+  },
+  {
+   "name": "hours-per-week",
+   "type": "integer"
+  },
+  {
+   "name": "native-country",
+   "type": "category",
+   "values": [
+    "Cambodia",
+    "Canada",
+    "China",
+    "Columbia",
+    "Cuba",
+    "Dominican-Republic",
+    "Ecuador",
+    "El-Salvador",
+    "England",
+    "France",
+    "Germany",
+    "Greece",
+    "Guatemala",
+    "Haiti",
+    "Hong",
+    "Hungary",
+    "India",
+    "Iran",
+    "Ireland",
+    "Italy",
+    "Jamaica",
+    "Japan",
+    "Laos",
+    "Mexico",
+    "Nicaragua",
+    "Outlying-US(Guam-USVI-etc)",
+    "Peru",
+    "Philippines",
+    "Poland",
+    "Portugal",
+    "Puerto-Rico",
+    "South",
+    "Taiwan",
+    "Thailand",
+    "Trinadad&Tobago",
+    "United-States",
+    "Vietnam",
+    "Yugoslavia",
+    "Other"
+   ]
+  },
+  {
+   "name": "income",
+   "type": "category",
+   "values": [
+    "<=50K",
+    ">50K"
+   ]
+  }
+ ]
+}

@@ -11,15 +11,29 @@ import pytest
 
 CHECK = (
     "import os, sys\n"
-    "os.environ.pop('OPENAI_API_KEY', None)\n"
+    "os.environ.pop('LLM_API_KEY', None)\n"
     "import {module}\n"
     "assert 'torch' not in sys.modules, 'torch was imported'\n"
     "assert 'dotenv' not in sys.modules, 'dotenv was imported'\n"
-    "assert 'OPENAI_API_KEY' not in os.environ, 'the environment file was read'\n"
+    "assert 'LLM_API_KEY' not in os.environ, 'the environment file was read'\n"
 )
 
 
-@pytest.mark.parametrize("module", ["sds", "sds.config", "sds.data_engine", "sds.samples"])
+@pytest.mark.parametrize(
+    "module",
+    [
+        "sds",
+        "sds.config",
+        "sds.data_engine",
+        "sds.samples",
+        "sds.llm_analyst.settings",
+        "sds.llm_analyst.llm_config",
+        "sds.llm_analyst.errors",
+        "sds.llm_analyst.prompt",
+        "sds.llm_analyst.sandbox",
+        "sds.llm_analyst.analyst",
+    ],
+)
 def test_import_loads_neither_torch_nor_secrets(module):
     result = subprocess.run(
         [sys.executable, "-c", CHECK.format(module=module)], capture_output=True, text=True
