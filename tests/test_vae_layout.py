@@ -198,3 +198,47 @@ def test_decode_of_activated_logits(loss):
     assert pd.api.types.is_integer_dtype(table["grade"])
     assert set(table["sex"]) <= {"F", "M"}
     assert set(table["grade"]) <= {1, 2, 3, 4, 5}
+
+
+# --------------------------------------------------------------------------------------------
+# Point masses: a numeric column with a mass takes [continuous, yes, no]
+# --------------------------------------------------------------------------------------------
+
+def mass_contract() -> SchemaContract:
+    """'gain' with a mass on 0 (positions 0-2), 'sex' (3-4), 'bmi' without a mass (5)."""
+    return make_contract([
+        ContractColumn("gain", "numeric", 0, 3, min=0.0, max=100.0, integer=True, mass=0),
+        ContractColumn("sex", "categorical", 3, 5, levels=("F", "M")),
+        ContractColumn("bmi", "numeric", 5, 6, min=15.0, max=60.0, integer=False),
+    ], width=6)
+
+
+def test_layout_of_a_mass_column():
+    layout = OutputLayout.from_contract(mass_contract())
+    assert layout.numeric_index.tolist() == [0, 5]
+    assert list(layout.categorical_slices) == [slice(1, 3), slice(3, 5)]
+
+
+@pytest.mark.parametrize("stop, mass", [(2, 0), (4, 0), (3, None)], ids=["mass_two_positions",
+                                                                       "mass_four_positions",
+                                                                       "three_positions_without_mass"])
+def test_a_mass_column_must_take_three_positions(stop, mass):
+    columns = [ContractColumn("gain", "numeric", 0, stop, min=0.0, max=1.0, mass=mass)]
+    with pytest.raises(VaeError) as error:
+        OutputLayout.from_contract(make_contract(columns, width=stop))
+    assert error.value.code == "invalid_contract"
+
+
+def test_the_indicator_is_a_distribution():
+    contract = mass_contract()
+    out = activate(random_logits(width=contract.width), OutputLayout.from_contract(contract), loss=MIXED_LOSS)
+    assert torch.allclose(out[:, 1:3].sum(dim=1), torch.ones(N_ROWS), atol=SUM_TOLERANCE)
+
+
+def test_decode_of_activated_logits_with_a_mass():
+    contract = mass_contract()
+    out = activate(random_logits(width=contract.width), OutputLayout.from_contract(contract), loss=MIXED_LOSS)
+    table = decode(out.detach().numpy(), contract)
+    assert list(table.columns) == ["gain", "sex", "bmi"]
+    assert pd.api.types.is_integer_dtype(table["gain"])
+    assert (table["gain"] == 0).any() and (table["gain"] > 0).any()

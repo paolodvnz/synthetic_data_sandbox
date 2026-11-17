@@ -16,6 +16,21 @@ from sds.data_engine.thresholds_config import (
 from sds.data_engine.types import ColumnInfo, Issue
 
 
+# Why a column of date-shaped values is not used: (reason, warning after "Column '<name>' ").
+DATE_PROBLEMS = {
+    "date_ambiguous": (
+        "it looks like dates, but day and month cannot be told apart",
+        "looks like dates, but every value can be read both as day/month and as month/day, so it is not used. "
+        "Write the dates as YYYY-MM-DD to use it.",
+    ),
+    "date_unreadable": (
+        "it looks like dates, but not all in one format",
+        "looks like dates, but not all in one format (day/month/year or month/day/year with /, - or ., or "
+        "YYYY-MM-DD), or some are not real dates, so it is not used. Write them all as YYYY-MM-DD to use it.",
+    ),
+}
+
+
 def base_role(kind: str, n_distinct: int) -> str:
     """Role of a usable column from its values alone (no drop or ID rules).
 
@@ -36,7 +51,8 @@ def infer_role(name: str, column: CleanColumn) -> tuple[ColumnInfo, list[Issue]]
 
     Order: all null / constant / near constant (fewer than ``MIN_LEVEL_ROWS`` rows differ from the
     most frequent value: learned poorly, and those few rows could identify someone) / too many
-    nulls -> dropped; date -> date (before the ID rule, since daily dates can be almost unique);
+    nulls -> dropped; date-shaped text that is not one date format -> dropped with a clear warning (before the ID
+    rule, like the dates); date -> date (before the ID rule, since daily dates can be almost unique);
     integer or text almost unique -> suspected ID; text with too many levels -> dropped; numbers
     with few values, whole or not -> categorical (codes, or quantities with a few possible values:
     read as numeric they would be generated between the real values, e.g. multipliers 0.25, 0.5, 1,
@@ -58,7 +74,7 @@ def infer_role(name: str, column: CleanColumn) -> tuple[ColumnInfo, list[Issue]]
 
     def info(role: str, reason: str) -> ColumnInfo:
         return ColumnInfo(name, role, reason, column.kind, column.is_integer, n_distinct,
-                          round(null_fraction, 4), n_minority)
+                          round(null_fraction, 4), n_minority, column.date_format if role == "date" else None)
 
     def dropped(reason: str) -> tuple[ColumnInfo, list[Issue]]:
         issue = Issue("column_dropped", f"Column '{name}' will not be used: {reason}.", name)
@@ -79,11 +95,14 @@ def infer_role(name: str, column: CleanColumn) -> tuple[ColumnInfo, list[Issue]]
         return info("dropped", reason), [issue]
     if null_fraction > MAX_NULL_FRACTION:
         return dropped(f"{null_fraction:.0%} of its values are missing")
+    if column.date_problem is not None:
+        reason, message = DATE_PROBLEMS[column.date_problem]
+        return info("dropped", reason), [Issue(column.date_problem, f"Column '{name}' {message}", name)]
     if column.kind == "date":
         issue = Issue(
             "date_privacy",
-            f"Column '{name}' contains dates, which can help identify people (e.g. date of birth). "
-            "Consider removing it in Advanced.",
+            f"Column '{name}' contains dates. If the data describe people, consider removing it in Advanced: "
+            "dates (e.g. a date of birth) can help identify someone.",
             name,
         )
         return info("date", "dates"), [issue]
@@ -91,7 +110,7 @@ def infer_role(name: str, column: CleanColumn) -> tuple[ColumnInfo, list[Issue]]
         reason = "almost every row has a different value, like an identifier"
         issue = Issue(
             "suspected_id",
-            f"Column '{name}' looks like an identifier and is excluded. Include it in Advanced if it is not.",
+            f"Column '{name}' looks like an identifier or a date and is excluded. Include it in Advanced if it is not.",
             name,
         )
         return info("id", reason), [issue]

@@ -42,6 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==9.2.0",
+    "pytest-cov==7.1.0",   # coverage of the app code: pytest --cov
     "httpx==0.28.1",       # FastAPI TestClient
     "jupyterlab==4.6.6",   # benchmark notebook
     "ipykernel==7.4.0",
@@ -57,3 +58,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests/fixtures"]
+
+[tool.coverage.run]
+# The app only, not the tests. Folders, not package names: ui/app.py runs as __main__ (Streamlit script).
+source = ["src", "api", "ui"]

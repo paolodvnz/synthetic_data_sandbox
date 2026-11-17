@@ -1,7 +1,8 @@
 """Decoding: from vectors (the VAE output) back to a table, reading only the schema contract.
 
 - numeric: inverse MinMax, clipped to the train range, rounded to whole numbers or to the decimals of the
-  train values;
+  train values; with a point mass, its ``[yes, no]`` indicator is sampled like a categorical group and the rows
+  with "yes" get exactly the mass value (the continuous position is used only for "no");
 - date: the same in whole days, then ``origin + days``;
 - categorical: the group holds probabilities (the VAE applies the softmax). One level is *sampled*
   per row, with a seed: argmax would always pick the most likely level and squash the minority
@@ -10,8 +11,9 @@
   ``decode(encode(x))`` gives ``x`` back without a separate argmax mode.
 - "Other": text columns write ``"Other"``; numeric codes (whole or not) pick one of the merged values with
   the train proportions, so the column stays made of numbers seen in the real data.
-- coherence repair: sampling each group on its own can pair values no train row pairs (on Adult 25%
-  of the rows, e.g. "education" HS-grad with "education-num" 10). In every row with a slot pair missing
+- coherence repair: sampling each one-hot group (categories and point-mass indicators) on its own can pair
+  values no train row pairs (on Adult 25% of the rows, e.g. "education" HS-grad with "education-num" 10;
+  31% with "capital-gain" and "capital-loss" both non-zero). In every row with a slot pair missing
   from ``contract.seen_pairs``, the conflicting column whose sampled level is the least likely (among
   those that have a compatible level) is resampled among the levels compatible with the rest of the
   row, for ``MAX_REPAIR_PASSES`` passes. Only that column changes: the other draws, and so the
@@ -25,9 +27,9 @@ import numpy as np
 import pandas as pd
 
 from sds.config import RANDOM_STATE
-from sds.data_engine.contract import OTHER_LABEL, ContractColumn, SchemaContract
-from sds.data_engine.thresholds_config import MAX_REPAIR_PASSES
-from sds.data_engine.types import DataEngineError
+from sds.data_engine.contract import OTHER_LABEL, ContractColumn, OneHotGroup, SchemaContract
+from sds.data_engine.thresholds_config import ISO_DATE_FORMAT, MAX_REPAIR_PASSES
+from sds.data_engine.types import MASS_YES_SLOT, DataEngineError
 
 
 def unscale(scores: np.ndarray, column: ContractColumn) -> np.ndarray:
@@ -51,10 +53,10 @@ def sample_slots(probabilities: np.ndarray, rng: np.random.Generator) -> np.ndar
     return np.minimum((cumulative <= draws).sum(axis=1), probabilities.shape[1] - 1)
 
 
-def group_probabilities(vectors: np.ndarray, column: ContractColumn,
+def group_probabilities(vectors: np.ndarray, group: OneHotGroup,
                         rows: np.ndarray | slice = slice(None)) -> np.ndarray:
-    """Cleaned probabilities of one categorical group, for some rows (float64 for those rows only)."""
-    return clean_probabilities(vectors[rows, column.start:column.stop].astype(np.float64))
+    """Cleaned probabilities of one one-hot group, for some rows (float64 for those rows only)."""
+    return clean_probabilities(vectors[rows, group.start:group.stop].astype(np.float64))
 
 
 def category_values(slots: np.ndarray, column: ContractColumn, rng: np.random.Generator) -> pd.Series:
@@ -75,7 +77,7 @@ def category_values(slots: np.ndarray, column: ContractColumn, rng: np.random.Ge
     return pd.Series(labels[slots], dtype="str")
 
 
-def pair_tables(contract: SchemaContract, groups: list[ContractColumn]) -> dict[tuple[int, int], np.ndarray]:
+def pair_tables(contract: SchemaContract, groups: list[OneHotGroup]) -> dict[tuple[int, int], np.ndarray]:
     """``(i, j) -> seen[slot of i, slot of j]`` for every pair of groups with an entry, both orders."""
     index = {g.name: i for i, g in enumerate(groups)}
     tables = {}
@@ -99,7 +101,7 @@ def unseen_counts(slots: list[np.ndarray], tables: dict) -> np.ndarray:
     return counts
 
 
-def repair_slots(vectors: np.ndarray, groups: list[ContractColumn], slots: list[np.ndarray], tables: dict,
+def repair_slots(vectors: np.ndarray, groups: list[OneHotGroup], slots: list[np.ndarray], tables: dict,
                  rng: np.random.Generator) -> np.ndarray:
     """Resample, in every incoherent row, the least likely conflicting column among the compatible levels.
 
@@ -162,7 +164,7 @@ def decode_checked(vectors: np.ndarray, contract: SchemaContract, *,
             f"Expected rows of {contract.width} values, got shape {vectors.shape}.",
         )
     rng = np.random.default_rng(seed)
-    groups = [c for c in contract.columns if c.role == "categorical"]
+    groups = contract.onehot_groups()
     # Slots only (int16: at most MAX_CATEGORIES per group); probabilities are recomputed for the rows
     # being repaired, so memory stays one float64 group at a time, as before the repair.
     slots = [sample_slots(group_probabilities(vectors, g), rng).astype(np.int16) for g in groups]
@@ -186,8 +188,22 @@ def decode_checked(vectors: np.ndarray, contract: SchemaContract, *,
                 values = np.rint(values).astype(np.int64)
             elif column.decimals is not None:
                 values = np.round(values, column.decimals)      # as many decimals as the real values
+            if column.mass is not None:
+                values[group_slots[column.name] == MASS_YES_SLOT] = column.mass
             table[column.name] = values
     return pd.DataFrame(table, copy=False), incoherent      # the decoded columns are new: no need to copy them
+
+
+def in_file_format(frame: pd.DataFrame, contract: SchemaContract) -> pd.DataFrame:
+    """A copy of a decoded table with the dates written as in the uploaded file (text; missing stays missing).
+
+    For the CSV the user takes away: inside the app the dates stay dates (ISO when written as text).
+    """
+    written = frame.copy()
+    for column in contract.columns:
+        if column.role == "date":
+            written[column.name] = frame[column.name].dt.strftime(column.date_format or ISO_DATE_FORMAT)
+    return written
 
 
 def decode(vectors: np.ndarray, contract: SchemaContract, *, seed: int = RANDOM_STATE) -> pd.DataFrame:

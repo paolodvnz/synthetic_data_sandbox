@@ -9,3 +9,4 @@ data/
 !tests/fixtures/*.csv
 *.pt
 .ruff_cache/
+.coverage

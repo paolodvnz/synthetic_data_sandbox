@@ -37,7 +37,8 @@ def test_vae_layout_on_real_contracts(inspections, preparations, encoders):
         contract = build_contract(inspection, schema, preparations[ds], encoders[ds])
         layout = OutputLayout.from_contract(SchemaContract.from_dict(json.loads(json.dumps(contract.to_dict()))))
         assert layout.width == encoders[ds].width, ds
-        assert len(layout.numeric_index) + len(layout.categorical_slices) == len(contract.columns), ds
+        n_masses = sum(c.mass is not None for c in contract.columns)       # a mass adds its indicator group
+        assert len(layout.numeric_index) + len(layout.categorical_slices) == len(contract.columns) + n_masses, ds
         for group in layout.categorical_slices:          # encoded rows: one 1 per group
             block = encoders[ds].transform(preparations[ds].train.head(N_ENCODED_ROWS))[:, group]
             assert (block.sum(axis=1) == 1).all(), ds

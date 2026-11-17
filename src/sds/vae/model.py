@@ -3,7 +3,7 @@
 Dense layers with ReLU: encoder x -> h -> (mu, log sigma^2), reparameterization, mirrored decoder
 z -> h -> logits. The decoder returns raw logits; ``layout.activate`` turns them into decoder-ready
 values with the activation of the loss. No dropout (in a VAE it adds noise to the reconstruction)
-and no batch norm (medical datasets are often small).
+and no batch norm (sensitive datasets are often small).
 """
 
 from __future__ import annotations

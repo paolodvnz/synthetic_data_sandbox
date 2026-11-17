@@ -1,6 +1,8 @@
 """Output layout of the VAE and activation of its outputs.
 
-The VAE reads the index map only from the schema contract, never from the scikit-learn encoder.
+The VAE reads the index map only from the schema contract, never from the scikit-learn encoder. A numeric
+column with a point mass takes ``[continuous, yes, no]``: its first position is numeric, the indicator is one
+more one-hot group (``SchemaContract.onehot_groups``), learned and activated like a categorical column.
 The model returns raw logits; the activation is tied to the loss the model was trained with:
 - ``baseline`` (the assignment's MSE loss): sigmoid on every position, one-hot groups included.
   Groups do not sum to 1; ``decode`` cleans and renormalises them.
@@ -19,6 +21,7 @@ from dataclasses import dataclass
 import torch
 
 from sds.data_engine.contract import SchemaContract
+from sds.data_engine.types import MASS_SLOTS
 
 BASELINE_LOSS = "baseline"
 MIXED_LOSS = "mixed"
@@ -50,8 +53,9 @@ class OutputLayout:
 
     Attributes:
         width: Length of the encoded vector.
-        numeric_index: Positions of numeric and date columns (long tensor).
-        categorical_slices: One ``slice(start, stop)`` per one-hot group, in contract order.
+        numeric_index: Positions of numeric and date columns (long tensor; the continuous position of a mass column).
+        categorical_slices: One ``slice(start, stop)`` per one-hot group (categorical columns and point-mass
+            indicators), in vector order.
     """
 
     width: int
@@ -72,7 +76,7 @@ class OutputLayout:
             VaeError: ``invalid_contract`` when the columns do not cover ``[0, width)`` exactly, in
                 order, or when a column has an unknown role or the wrong number of positions.
         """
-        numeric, groups = [], []
+        numeric = []
         position = 0
         for column in contract.columns:
             if column.start != position:
@@ -80,19 +84,20 @@ class OutputLayout:
                 raise invalid_contract(f"there is {gap_or_overlap} before column '{column.name}'")
             size = column.stop - column.start
             if column.role in SCALAR_ROLES:
-                if size != 1:
-                    raise invalid_contract(f"column '{column.name}' should take 1 position, not {size}")
+                expected = 1 if column.mass is None else 1 + MASS_SLOTS
+                if size != expected:
+                    raise invalid_contract(f"column '{column.name}' should take {expected} positions, not {size}")
                 numeric.append(column.start)
             elif column.role == CATEGORICAL_ROLE:
                 if size < MIN_GROUP_SLOTS:
                     raise invalid_contract(f"column '{column.name}' has fewer than {MIN_GROUP_SLOTS} values")
-                groups.append(slice(column.start, column.stop))
             else:
                 raise invalid_contract(f"column '{column.name}' has an unknown role '{column.role}'")
             position = column.stop
         if position != contract.width:
             raise invalid_contract(f"the columns take {position} positions, but the width is {contract.width}")
-        return cls(contract.width, torch.tensor(numeric, dtype=torch.long), tuple(groups))
+        groups = tuple(slice(g.start, g.stop) for g in contract.onehot_groups())
+        return cls(contract.width, torch.tensor(numeric, dtype=torch.long), groups)
 
     def to(self, device: torch.device | str) -> OutputLayout:
         """The same layout with its index tensor on ``device``."""

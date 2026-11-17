@@ -19,6 +19,11 @@ never block: fidelity decides how useful the data are, and that choice stays wit
 difference both **real** (``z``, the distance beyond the baseline in spreads, above ``MIN_FIDELITY_Z``) and
 **large** (the "excess", synthetic distance minus baseline, above a limit): z alone grows with the number of rows,
 the excess alone with the noise of small samples (calibration in ``fidelity_config``).
+
+The summary warnings read the mean over the columns of a kind, so one bad column in a good dataset never fires them.
+The same rule column by column (its own z and excess, the limit of its kind) gives the **less faithful** columns:
+the Validate step lists them and the Ask step marks the charts that use them. With these limits the real groups left
+out of the baseline never give such a column on the six sample datasets (no new threshold: see ``avvisi_ask``).
 """
 
 from __future__ import annotations
@@ -139,7 +144,9 @@ class FidelityReport:
         histograms: One per contract column (the holdout group and every synthetic slice).
         unseen_pairs_synthetic: Share of synthetic rows pairing categorical values never seen in train.
         unseen_pairs_real: The same for the holdout group (rare but true crossings).
-        warnings: Not blocking: ``distributions_differ``, ``relationships_differ``.
+        warnings: Not blocking: ``relationships_differ``, ``columns_differ``.
+        less_faithful: Columns whose own difference is real and large (``less_faithful_columns``), largest excess
+            first.
     """
 
     n_compared: int
@@ -154,6 +161,7 @@ class FidelityReport:
     unseen_pairs_synthetic: float
     unseen_pairs_real: float
     warnings: list[Issue] = field(default_factory=list)
+    less_faithful: list[ColumnFidelity] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------------------------
@@ -365,27 +373,46 @@ def beyond(measure: Measure, excess_limit: float, limits: FidelityLimits) -> boo
     return measure.z > limits.min_z and measure.excess > excess_limit
 
 
+def column_limit(column: ColumnFidelity, limits: FidelityLimits) -> float:
+    """Excess limit of a column: the limit of its kind (dates count as numbers)."""
+    return limits.categorical_excess if column.role == CATEGORICAL_ROLE else limits.numeric_excess
+
+
+def less_faithful_columns(columns: list[ColumnFidelity], limits: FidelityLimits) -> list[ColumnFidelity]:
+    """Columns whose own difference is both real (z) and large (excess beyond the limit of its kind), largest first."""
+    flagged = [c for c in columns if c.z > limits.min_z and c.excess > column_limit(c, limits)]
+    return sorted(flagged, key=lambda c: c.excess, reverse=True)
+
+
+def difference_phrase(column: ColumnFidelity) -> str:
+    """How large the difference of a column is, in plain words (the excess: what chance does not explain)."""
+    size = max(1, round(100 * column.excess))
+    if column.role == CATEGORICAL_ROLE:
+        return f"its shares differ from the real ones by about {size} point{'s' if size != 1 else ''}"
+    return f"its values are spread differently from the real ones, by about {size}% of their range"
+
+
+def columns_warning(less_faithful: list[ColumnFidelity]) -> Issue:
+    """The Validate step's warning on the less faithful columns (at most ``MAX_LISTED_COLUMNS`` named)."""
+    listed = "; ".join(f"'{c.name}' ({difference_phrase(c)})" for c in less_faithful[:MAX_LISTED_COLUMNS])
+    more = len(less_faithful) - MAX_LISTED_COLUMNS
+    rest = f"; and {more} more" if more > 0 else ""
+    return Issue(
+        "columns_differ",
+        f"Some columns differ from the real data more than chance explains: {listed}{rest}. Charts that use them may "
+        "be less reliable: the Ask step points this out under its charts.",
+        less_faithful[0].name,
+    )
+
+
 def fidelity_warnings(columns: list[ColumnFidelity], measures: dict[str, Measure],
                       worst_pairs: list[tuple[str, str]], limits: FidelityLimits) -> list[Issue]:
-    """Plain-language warnings for the measures that differ beyond chance by more than their limit.
+    """Plain-language warnings for the differences beyond chance and beyond their limit.
 
-    The columns named are the ones with the largest excess: z also grows when two real groups hardly differ
-    (a column almost constant), which would name columns whose difference is tiny.
+    The columns are named once, by ``columns_differ``: the summary measures of the numbers and of the categories
+    have no warning of their own (it would name the same columns again).
     """
     warnings = []
-    excess_limits = {"numeric": limits.numeric_excess, CATEGORICAL_ROLE: limits.categorical_excess}
-    kinds = [kind for kind, limit in excess_limits.items() if beyond(measures[kind], limit, limits)]
-    if kinds:
-        candidates = [c for c in columns
-                      if (c.role == CATEGORICAL_ROLE and CATEGORICAL_ROLE in kinds)
-                      or (c.role != CATEGORICAL_ROLE and "numeric" in kinds)]
-        worst = sorted(candidates, key=lambda c: c.excess, reverse=True)[:MAX_LISTED_COLUMNS]
-        warnings.append(Issue(
-            "distributions_differ",
-            "Some columns of the synthetic data are spread differently from the real ones "
-            f"(most: {', '.join(c.name for c in worst)}). Charts of these columns may be less reliable.",
-            worst[0].name,
-        ))
     if beyond(measures["association"], limits.association_excess, limits):
         pairs = ", ".join(f"{a} and {b}" for a, b in worst_pairs)
         warnings.append(Issue(
@@ -393,6 +420,9 @@ def fidelity_warnings(columns: list[ColumnFidelity], measures: dict[str, Measure
             "Some relationships between columns are different in the synthetic data than in the real ones "
             f"(most: {pairs}). Charts that cross these columns may be less reliable.",
         ))
+    less_faithful = less_faithful_columns(columns, limits)
+    if less_faithful:
+        warnings.append(columns_warning(less_faithful))
     return warnings
 
 
@@ -467,4 +497,5 @@ def fidelity_report(synthetic: pd.DataFrame, holdout: pd.DataFrame, train: pd.Da
         unseen_pairs_synthetic=unseen_pair_share(every_slice, seen_rows, categorical),
         unseen_pairs_real=unseen_pair_share(reference, seen_rows, categorical),
         warnings=fidelity_warnings(columns, measures, worst_pairs, limits),
+        less_faithful=less_faithful_columns(columns, limits),
     )

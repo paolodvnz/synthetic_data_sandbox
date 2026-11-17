@@ -9,6 +9,8 @@ import pandas as pd
 
 Role = Literal["numeric", "categorical", "date", "id", "dropped"]
 USABLE_ROLES: frozenset[str] = frozenset({"numeric", "categorical", "date"})
+MASS_SLOTS = 2        # one-hot indicator of a point mass: [yes, no] after the continuous position
+MASS_YES_SLOT = 0    # slot of "the row has the mass value"
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ class ColumnInfo:
         n_distinct: Number of distinct non-null values.
         null_fraction: Share of missing values.
         n_minority: Rows (non-null) that differ from the most frequent value.
+        date_format: How the dates of a date column are written in the file (``strftime``; ISO: ``%Y-%m-%d``),
+            ``None`` for the other columns.
     """
 
     name: str
@@ -49,6 +53,7 @@ class ColumnInfo:
     n_distinct: int
     null_fraction: float
     n_minority: int = 0
+    date_format: str | None = None
 
 
 @dataclass

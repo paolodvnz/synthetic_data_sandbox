@@ -171,7 +171,7 @@ def test_every_decimal_level_has_its_own_slot(built):
 def test_the_contract_marks_decimal_codes(built):
     contract, _, _ = built
     mult, x = entry(contract, "mult"), entry(contract, "x")
-    assert contract.version == CONTRACT_VERSION == 4
+    assert contract.version == CONTRACT_VERSION        # 5 for the decimal codes, 6 since the date formats
     assert mult.decimal_codes and not mult.integer and mult.numeric_codes
     assert not x.decimal_codes and not x.numeric_codes
 

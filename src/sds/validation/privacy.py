@@ -6,7 +6,8 @@ the train encoder, so the check measures the file the user takes away, not the r
 The distance is Gower's on the encoded vector: one term per column of the contract, averaged.
 A numeric or date column contributes ``|a - b|`` on the MinMax scale; a one-hot group contributes
 ``1 - a . b`` (0 for the same level, 1 otherwise). Euclidean distance on the one-hot vector would give a
-categorical mismatch a weight of sqrt(2) against at most 1 for a numeric column.
+categorical mismatch a weight of sqrt(2) against at most 1 for a numeric column. The indicator of a point
+mass is not a term of its own: its continuous position already holds the mass value.
 
 The reference is the distance of the holdout rows, which the VAE never saw, to the train rows: a
 synthetic row should be no closer to the train than a new real person is.
@@ -15,6 +16,7 @@ synthetic row should be no closer to the train than a new real person is.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -35,6 +37,16 @@ from sds.validation.privacy_config import (
 
 CATEGORICAL_ROLE = "categorical"
 TIE_WEIGHT = 0.5               # a synthetic row as close to train as to holdout counts half
+
+
+class StopSignal(Protocol):
+    """Anything with ``is_set()``, such as a ``threading.Event``."""
+
+    def is_set(self) -> bool: ...
+
+
+class PrivacyCheckStopped(Exception):
+    """Raised when the stop signal was set during the check: a report on part of the rows means nothing."""
 
 
 @dataclass(frozen=True)
@@ -88,7 +100,7 @@ def gower_block(queries: np.ndarray, reference: np.ndarray, numeric: list[int], 
 
 
 def closest_record_distances(queries: np.ndarray, reference: np.ndarray, contract: SchemaContract, *,
-                             batch_size: int = DCR_BATCH_SIZE) -> np.ndarray:
+                             batch_size: int = DCR_BATCH_SIZE, stop_event: StopSignal | None = None) -> np.ndarray:
     """Gower distance of every query row to its closest reference row.
 
     Args:
@@ -96,20 +108,27 @@ def closest_record_distances(queries: np.ndarray, reference: np.ndarray, contrac
         reference: Encoded rows to search, shape ``(m, width)``.
         contract: Schema contract of the encoder (positions and roles of the columns).
         batch_size: Query rows per block; reference rows go by ``DCR_REFERENCE_BLOCK``.
+        stop_event: Looked at before every block of query rows; when set, the search stops.
 
     Returns:
         Array of shape ``(n,)`` in query order.
 
     Raises:
         ValueError: Empty inputs or a width different from the contract.
+        PrivacyCheckStopped: ``stop_event`` was set.
     """
     check_rows(queries, contract, "queries")
     check_rows(reference, contract, "reference")
+    # One term per column of the user. A point mass adds an indicator after the continuous position: it is left
+    # out (not ``contract.onehot_groups()``), because the value already says it (yes <=> value == mass) and
+    # counting it would weigh that column twice. The distance stays the one MIN_DCR_RATIO was calibrated on.
     numeric = [c.start for c in contract.columns if c.role != CATEGORICAL_ROLE]
     groups = [c for c in contract.columns if c.role == CATEGORICAL_ROLE]
     slots = [i for c in groups for i in range(c.start, c.stop)]
     closest = np.full(len(queries), np.inf)
     for q_start in range(0, len(queries), batch_size):
+        if stop_event is not None and stop_event.is_set():
+            raise PrivacyCheckStopped()
         q_block = queries[q_start:q_start + batch_size]
         for r_start in range(0, len(reference), DCR_REFERENCE_BLOCK):
             r_block = reference[r_start:r_start + DCR_REFERENCE_BLOCK]
@@ -132,7 +151,8 @@ def memorisation_causes(n_train: int) -> str:
 
 def privacy_check(synthetic: np.ndarray, train: np.ndarray, holdout: np.ndarray, contract: SchemaContract, *,
                   max_rows: int = DCR_MAX_ROWS, seed: int = RANDOM_STATE, min_ratio: float = MIN_DCR_RATIO,
-                  exact_tolerance: float = EXACT_SHARE_TOLERANCE) -> PrivacyReport:
+                  exact_tolerance: float = EXACT_SHARE_TOLERANCE,
+                  stop_event: StopSignal | None = None) -> PrivacyReport:
     """Check that the synthetic rows do not copy the train rows.
 
     Args:
@@ -144,12 +164,14 @@ def privacy_check(synthetic: np.ndarray, train: np.ndarray, holdout: np.ndarray,
         seed: Seed of that subset.
         min_ratio: The synthetic percentile must reach ``min_ratio`` times the holdout one.
         exact_tolerance: Share of copies allowed beyond the genuine duplicates and the noise.
+        stop_event: When set, the check stops before its next block of rows (the app's Stop button).
 
     Returns:
         The report; ``passed`` is False when any failure was found.
 
     Raises:
         ValueError: Empty inputs or a width different from the contract.
+        PrivacyCheckStopped: ``stop_event`` was set.
     """
     for rows, name in ((synthetic, "synthetic"), (train, "train"), (holdout, "holdout")):
         check_rows(rows, contract, name)
@@ -157,9 +179,9 @@ def privacy_check(synthetic: np.ndarray, train: np.ndarray, holdout: np.ndarray,
         chosen = np.random.default_rng(seed).choice(len(synthetic), size=max_rows, replace=False)
         synthetic = synthetic[np.sort(chosen)]
 
-    to_train = closest_record_distances(synthetic, train, contract)
-    to_holdout = closest_record_distances(synthetic, holdout, contract)
-    reference = closest_record_distances(holdout, train, contract)
+    to_train = closest_record_distances(synthetic, train, contract, stop_event=stop_event)
+    to_holdout = closest_record_distances(synthetic, holdout, contract, stop_event=stop_event)
+    reference = closest_record_distances(holdout, train, contract, stop_event=stop_event)
 
     synthetic_percentile = float(np.percentile(to_train, DCR_PERCENTILE))
     holdout_percentile = float(np.percentile(reference, DCR_PERCENTILE))
@@ -172,12 +194,12 @@ def privacy_check(synthetic: np.ndarray, train: np.ndarray, holdout: np.ndarray,
     causes = memorisation_causes(len(train))
     if synthetic_exact > limit:
         failures.append(Issue("copied_rows", (
-            f"{synthetic_exact:.1%} of the synthetic rows are identical to a real patient record, while the real "
+            f"{synthetic_exact:.1%} of the synthetic rows are identical to a real record, while the real "
             f"data alone would explain at most {limit:.1%}. The model memorised part of the data, so the synthetic "
             f"data cannot be shared. {causes}")))
     if synthetic_percentile < min_ratio * holdout_percentile:
         failures.append(Issue("too_close", (
-            "The synthetic rows are much closer to the real records than new, unseen patients are. The model "
+            "The synthetic rows are much closer to the real records than new, unseen records are. The model "
             f"memorised the data, so the synthetic data cannot be shared. {causes}")))
     warnings = []
     if holdout_percentile <= EXACT_DISTANCE:

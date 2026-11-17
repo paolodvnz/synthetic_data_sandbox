@@ -36,9 +36,16 @@ Public API under test:
                     range in HISTOGRAM_BINS bins, labels are the edges; categorical: the levels)
         unseen_pairs_*: share of rows with a pair of categorical values never seen together in train
         warnings (not blocking), when a measure is both real (z > limits.min_z) and large (excess > its limit):
-        "distributions_differ" (numeric or categorical; columns named by excess, the first is the issue's
-        column), "relationships_differ"
+        "relationships_differ"; "columns_differ" when some columns are less faithful (below). The summary
+        measures of the numbers and of the categories give no warning of their own: columns_differ names the
+        columns (no "distributions_differ", 2026-11-16)
+        less_faithful: the columns whose own z is above limits.min_z and whose own excess is above the limit of
+            their kind (numeric_excess or categorical_excess), largest excess first: the Ask step marks the charts
+            that use them, the Validate step lists them (at most MAX_LISTED_COLUMNS named in the warning)
         n_compared: rows per group; too few rows for the groups is a ValueError
+    difference_phrase(column: ColumnFidelity) -> str
+        how large the difference is, in plain words: categorical "... about N points", numeric or date "... about
+        N% of their range"; N = 100 x excess rounded, at least 1
 """
 
 from itertools import combinations
@@ -51,6 +58,7 @@ from sds.data_engine import SchemaContract
 from sds.data_engine.contract import OTHER_LABEL, ContractColumn
 from sds.config import RANDOM_STATE
 from sds.validation.fidelity import (
+    ColumnFidelity,
     FidelityLimits,
     association_matrix,
     column_distance,
@@ -67,6 +75,7 @@ from sds.validation.fidelity import (
 )
 from sds.validation.fidelity_config import (
     FIDELITY_MAX_ROWS,
+    MAX_LISTED_COLUMNS,
     HISTOGRAM_BINS,
     MIN_BASELINE,
     REAL_GROUPS,
@@ -278,21 +287,25 @@ def test_a_fresh_sample_of_the_same_people_is_as_close_as_real_data(faithful):
     assert faithful.warnings == []
 
 
-def test_shifted_numbers_are_flagged_with_the_worst_column(real):
+def test_shifted_numbers_are_flagged_once_by_column(real):
+    # The summary measure is beyond its limit too, but the column is named once, by columns_differ.
     holdout, train = real
     synthetic = fresh()
     synthetic["bmi"] = np.clip(synthetic["bmi"] + 10, 15, 60)          # not the first column: the worst is named
     report = fidelity_report(synthetic, holdout, train, CONTRACT)
     assert report.numeric.z > FidelityLimits().min_z
-    assert [(w.code, w.column) for w in report.warnings] == [("distributions_differ", "bmi")]
-    assert report.warnings[0].message
+    assert report.numeric.excess > FidelityLimits().numeric_excess
+    summary = [(w.code, w.column) for w in report.warnings if w.code != "relationships_differ"]
+    assert summary == [("columns_differ", "bmi")]
+    assert report.warnings[-1].message
 
 
 def test_a_wrong_level_share_is_flagged(real):
     holdout, train = real
     report = fidelity_report(fresh().assign(sex="F"), holdout, train, CONTRACT)
     assert report.categorical.z > FidelityLimits().min_z
-    assert "distributions_differ" in [w.code for w in report.warnings]
+    assert "sex" in [c.name for c in report.less_faithful]
+    assert "distributions_differ" not in [w.code for w in report.warnings]
 
 
 def test_columns_are_named_by_excess_not_by_z(real):
@@ -309,20 +322,9 @@ def test_columns_are_named_by_excess_not_by_z(real):
     report = fidelity_report(synthetic, holdout, train, CONTRACT)
     sex, grade = by_name(report)["sex"], by_name(report)["grade"]
     assert sex.z > grade.z and grade.excess > sex.excess                  # the case the test is about
-    (warning,) = [w for w in report.warnings if w.code == "distributions_differ"]
+    (warning,) = [w for w in report.warnings if w.code == "columns_differ"]
     assert warning.column == "grade"
-    assert warning.message.index("grade") < warning.message.index("sex")
-
-
-def test_a_real_but_small_difference_is_not_flagged(real):
-    # bmi shifted by 2 (4% of its range): clearly beyond chance on 2,000 rows per group, but small in the mean.
-    holdout, train = real
-    synthetic = fresh()
-    synthetic["bmi"] = np.clip(synthetic["bmi"] + 2, 15, 60)
-    report = fidelity_report(synthetic, holdout, train, CONTRACT)
-    assert report.numeric.z > FidelityLimits().min_z
-    assert report.numeric.excess < FidelityLimits().numeric_excess
-    assert report.warnings == []
+    assert "sex" not in warning.message or warning.message.index("grade") < warning.message.index("sex")
 
 
 @pytest.mark.parametrize("limits", [FidelityLimits(min_z=1e6), FidelityLimits(numeric_excess=1.0)])
@@ -331,7 +333,7 @@ def test_a_warning_needs_both_a_real_and_a_large_difference(real, limits):
     synthetic = fresh()
     synthetic["bmi"] = np.clip(synthetic["bmi"] + 10, 15, 60)
     report = fidelity_report(synthetic, holdout, train, CONTRACT, limits=limits)
-    assert "distributions_differ" not in [w.code for w in report.warnings]
+    assert "columns_differ" not in [w.code for w in report.warnings]
 
 
 def test_lost_relationships_are_flagged_but_not_the_distributions(real):
@@ -505,3 +507,97 @@ def test_unseen_pairs_count_every_synthetic_slice(real):
     synthetic.loc[0, "grade"] = "c"                     # "F" never meets "c" in train: one unseen row
     report = fidelity_report(synthetic, holdout, train, CONTRACT)
     assert report.unseen_pairs_synthetic == pytest.approx(1 / (SYNTHETIC_SLICES * report.n_compared))
+
+
+# --------------------------------------------------------------------------------------------
+# Point masses: the report reads the decoded columns, never the positions of the vector
+# --------------------------------------------------------------------------------------------
+
+def test_the_report_is_the_same_with_and_without_a_point_mass():
+    from dataclasses import replace
+
+    from sds.data_engine import decode
+    from test_data_engine_point_mass import built, mass_columns
+
+    prepared, _, contract = built(mass_columns())
+    assert any(c.mass is not None for c in contract.columns)
+    vectors = np.random.default_rng(0).random((len(prepared.train), contract.width)).astype(np.float32)
+    synthetic = decode(vectors, contract)
+    without = replace(contract, columns=[replace(c, mass=None) for c in contract.columns])
+    args = (synthetic, prepared.holdout, prepared.train)
+    assert repr(fidelity_report(*args, contract)) == repr(fidelity_report(*args, without))
+
+
+# --------------------------------------------------------------------------------------------
+# Less faithful columns: the rule of the warnings, column by column
+# --------------------------------------------------------------------------------------------
+
+def shifted_bmi(real, shift: float, **kwargs):
+    holdout, train = real
+    synthetic = fresh()
+    synthetic["bmi"] = np.clip(synthetic["bmi"] + shift, 15, 60)
+    return fidelity_report(synthetic, holdout, train, CONTRACT, **kwargs)
+
+
+def test_a_faithful_report_has_no_less_faithful_column(faithful):
+    assert faithful.less_faithful == []
+    assert "columns_differ" not in [w.code for w in faithful.warnings]
+
+
+def test_one_shifted_column_is_less_faithful_even_when_the_mean_is_not(real):
+    # bmi + 2 (4% of its range): too small in the mean of the numerics, beyond the limit on its own.
+    report = shifted_bmi(real, 2)
+    assert [c.name for c in report.less_faithful] == ["bmi"]
+    bmi = report.less_faithful[0]
+    assert bmi.z > FidelityLimits().min_z and bmi.excess > FidelityLimits().numeric_excess
+    (warning,) = [w for w in report.warnings if w.code == "columns_differ"]
+    assert warning.column == "bmi" and "'bmi'" in warning.message
+
+
+def test_a_categorical_column_uses_its_own_limit(real):
+    holdout, train = real
+    synthetic = fresh().assign(sex="F")
+    report = fidelity_report(synthetic, holdout, train, CONTRACT)
+    assert "sex" in [c.name for c in report.less_faithful]
+    relaxed = fidelity_report(synthetic, holdout, train, CONTRACT, limits=FidelityLimits(categorical_excess=1.0))
+    assert "sex" not in [c.name for c in relaxed.less_faithful]
+
+
+@pytest.mark.parametrize("limits", [FidelityLimits(min_z=1e6), FidelityLimits(numeric_excess=1.0)])
+def test_a_less_faithful_column_needs_both_a_real_and_a_large_difference(real, limits):
+    report = shifted_bmi(real, 10, limits=limits)
+    assert "bmi" not in [c.name for c in report.less_faithful]
+
+
+def test_less_faithful_columns_come_largest_excess_first(real):
+    holdout, train = real
+    synthetic = fresh().assign(sex="F")
+    synthetic["bmi"] = np.clip(synthetic["bmi"] + 10, 15, 60)
+    report = fidelity_report(synthetic, holdout, train, CONTRACT)
+    excesses = [c.excess for c in report.less_faithful]
+    assert len(excesses) >= 2 and excesses == sorted(excesses, reverse=True)
+    (warning,) = [w for w in report.warnings if w.code == "columns_differ"]
+    assert warning.column == report.less_faithful[0].name
+
+
+def test_the_validate_warning_names_at_most_a_few_columns(real):
+    holdout, train = real
+    synthetic = fresh().assign(sex="M", grade="c", code=2)
+    synthetic["bmi"] = np.clip(synthetic["bmi"] + 10, 15, 60)
+    report = fidelity_report(synthetic, holdout, train, CONTRACT)
+    assert len(report.less_faithful) > MAX_LISTED_COLUMNS
+    (warning,) = [w for w in report.warnings if w.code == "columns_differ"]
+    named = [c.name for c in report.less_faithful if f"'{c.name}'" in warning.message]
+    assert named == [c.name for c in report.less_faithful[:MAX_LISTED_COLUMNS]]
+
+
+@pytest.mark.parametrize(
+    ("role", "excess", "expected"),
+    [("categorical", 0.031, "about 3 points"), ("numeric", 0.084, "about 8% of their range"),
+     ("date", 0.05, "about 5% of their range"), ("categorical", 0.004, "about 1 point")],
+)
+def test_difference_phrase(role, excess, expected):
+    from sds.validation.fidelity import difference_phrase     # inside: the other tests run before it exists
+
+    column = ColumnFidelity("x", role, distance=excess + 0.01, baseline=0.01, spread=0.001, z=10.0, excess=excess)
+    assert expected in difference_phrase(column)

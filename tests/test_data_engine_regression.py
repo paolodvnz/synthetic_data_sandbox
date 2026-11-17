@@ -220,3 +220,23 @@ def test_round_trip_on_real_data(inspections, preparations, encoders):
         contract = build_contract(inspection, schema, preparations[ds], encoders[ds])
         train = preparations[ds].train
         assert_round_trip(train, decode(encoders[ds].transform(train), contract), contract, ds)
+
+
+# Point masses of the numeric columns on the train split, measured on the six samples; Breast Cancer has none
+# (control).
+EXPECTED_MASSES = {
+    "pima": {"SkinThickness": 0, "Insulin": 0},
+    "breast_cancer": {},
+    "adult": {"capital-gain": 0, "capital-loss": 0, "hours-per-week": 40},
+    "bank_marketing": {"balance": 0, "pdays": -1, "previous": 0},
+    "cdc_diabetes": {"MentHlth": 0, "PhysHlth": 0},
+    "diabetes_130": {"discharge_disposition_id": 1, "number_outpatient": 0, "number_emergency": 0,
+                     "number_inpatient": 0},
+}
+
+
+def test_point_masses_on_the_sample_datasets(encoders):
+    for ds, encoder in encoders.items():
+        found = {g.name: g.mass for g in encoder.groups if g.mass is not None}
+        assert found == EXPECTED_MASSES[ds], ds
+        assert all(g.role == "numeric" for g in encoder.groups if g.mass is not None), ds

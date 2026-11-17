@@ -170,6 +170,31 @@ def test_sanity_check_memorises_64_rows():
     assert reconstruction(result.history[-1].train) < 0.1 * reconstruction(untrained)
 
 
+MASS_LAYOUT = OutputLayout.from_contract(SchemaContract(version=5, width=6, columns=[
+    ContractColumn("gain", "numeric", 0, 3, min=0.0, max=1.0, mass=0),
+    ContractColumn("sex", "categorical", 3, 5, levels=("F", "M")),
+    ContractColumn("bmi", "numeric", 5, 6, min=0.0, max=1.0),
+], dropped=[], rows={}, issues=[]))
+
+
+def test_sanity_check_memorises_rows_with_a_point_mass():
+    """A mass column ([continuous, yes, no]) is learned like the others: the network can memorise it."""
+    rng = np.random.default_rng(0)
+    n_rows = 64
+    x = np.zeros((n_rows, MASS_LAYOUT.width), dtype=np.float32)
+    on_mass = rng.random(n_rows) < 0.6
+    x[~on_mass, 0] = rng.random(int((~on_mass).sum()))
+    x[on_mass, 1], x[~on_mass, 2] = 1, 1
+    x[np.arange(n_rows), 3 + rng.integers(0, 2, n_rows)] = 1
+    x[:, 5] = rng.random(n_rows)
+    result = train_vae(x, MASS_LAYOUT, loss=MIXED_LOSS, architecture=SMALL, beta=0.0, max_steps=1500,
+                       eval_every=100, patience=1_000, batch_size=64, device=CPU)
+    torch.manual_seed(0)
+    untrained, _ = evaluate(TabularVae(MASS_LAYOUT.width, SMALL), x[result.train_index], MASS_LAYOUT,
+                            loss=MIXED_LOSS)
+    assert reconstruction(result.history[-1].train) < 0.1 * reconstruction(untrained)
+
+
 # --------------------------------------------------------------------------------------------
 # Training loop
 # --------------------------------------------------------------------------------------------

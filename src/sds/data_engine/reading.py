@@ -66,19 +66,24 @@ def sniff_separator(text: str) -> str:
 
 
 def unique_header(names: list[str]) -> tuple[list[str], list[Issue]]:
-    """Strip names, name empty ones and make duplicates unique (``x``, ``x_2``...)."""
+    """Strip names, name empty ones and make duplicates unique (``x``, ``x_2``...).
+
+    A duplicate takes the first free suffix, never the name of another column of the file: ``x,x,x_2`` gives
+    ``x, x_3, x_2``.
+    """
+    stripped = [raw.strip() or f"column_{position}" for position, raw in enumerate(names, start=1)]
+    taken = set(stripped)
     issues: list[Issue] = []
-    seen: dict[str, int] = {}
-    result = []
-    for position, raw in enumerate(names, start=1):
-        name = raw.strip() or f"column_{position}"
-        if name in seen:
-            seen[name] += 1
-            new_name = f"{name}_{seen[name]}"
+    result: list[str] = []
+    for name in stripped:
+        if name in result:
+            suffix = 2
+            while f"{name}_{suffix}" in taken:
+                suffix += 1
+            new_name = f"{name}_{suffix}"
+            taken.add(new_name)
             issues.append(Issue("column_renamed", f"Duplicate column name '{name}' renamed to '{new_name}'.", new_name))
             name = new_name
-        else:
-            seen[name] = 1
         result.append(name)
     return result, issues
 
@@ -127,10 +132,7 @@ def read_table(source: str | Path | bytes) -> RawTable:
     good = [row for row in body if len(row) == len(header)]
     n_bad = len(body) - len(good)
     if n_bad / len(body) > MAX_BAD_LINES_FRACTION:
-        raise DataEngineError(
-            "too_many_bad_lines",
-            f"{n_bad} of {len(body)} rows do not have {len(header)} values. The file seems damaged or misread.",
-        )
+        raise DataEngineError("too_many_bad_lines", "The file seems damaged or misread.")
     if n_bad:
         issues.append(Issue("bad_lines_skipped", f"{n_bad} malformed rows were skipped."))
 

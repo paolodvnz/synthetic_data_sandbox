@@ -27,7 +27,9 @@ MAX_EPOCHS = 1_000          # capacity experiment: lowest over-fitting without l
 MIN_STEPS = 200             # floor for tiny datasets, so the warm-up and the evaluations still have some steps
 MAX_STEPS = 20_000          # cap: datasets above ~4,500 rows train as many steps as before
 EVALUATIONS = 100           # evaluations on the validation rows per training (every max_steps // 100 steps)
-PATIENCE = 10               # evaluations without improvement before early stopping
+PATIENCE = 20               # evaluations without improvement before early stopping (20% of the training): with 10,
+                            # the point-mass indicators flattened the validation loss early and Bank stopped at
+                            # 6,400-17,600 of 20,000 steps while its numbers were still improving
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5         # light L2 penalty, a mild brake on memorisation (as TVAE)
 

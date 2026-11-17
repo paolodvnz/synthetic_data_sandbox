@@ -36,8 +36,9 @@ from sds.data_engine import SchemaContract
 from sds.data_engine.contract import ContractColumn
 from sds.data_engine.thresholds_config import MAX_HOLDOUT_ROWS
 from sds.validation import privacy
-from sds.validation.privacy import PrivacyReport, closest_record_distances, privacy_check
+from sds.validation.privacy import PrivacyCheckStopped, PrivacyReport, closest_record_distances, privacy_check
 from sds.validation.privacy_config import (
+    DCR_BATCH_SIZE,
     DCR_MAX_ROWS,
     DCR_PERCENTILE,
     EXACT_DISTANCE,
@@ -385,3 +386,93 @@ def test_the_warning_comes_with_failures_too():
     report = privacy_check(train[:N_HOLDOUT], train, holdout, BINARY_CONTRACT)
     assert failure_codes(report) == {"copied_rows"}
     assert warning_codes(report) == {"near_copies_unchecked"}
+
+
+# --------------------------------------------------------------------------------------------
+# Stop: the check runs in the app's job, which the user can stop
+# --------------------------------------------------------------------------------------------
+
+class CountingStop:
+    """A stop event that turns on after ``after`` looks: tells how far the check went before stopping."""
+
+    def __init__(self, after: int) -> None:
+        self.after, self.looks = after, 0
+
+    def is_set(self) -> bool:
+        self.looks += 1
+        return self.looks > self.after
+
+
+def test_a_stop_set_before_the_start_computes_nothing(train, holdout, fresh, monkeypatch):
+    blocks = []
+    real = privacy.gower_block
+    monkeypatch.setattr(privacy, "gower_block", lambda *a, **k: blocks.append(1) or real(*a, **k))
+    with pytest.raises(PrivacyCheckStopped):
+        privacy_check(fresh, train, holdout, CONTRACT, stop_event=CountingStop(after=0))
+    assert blocks == []
+
+
+def test_the_stop_is_seen_between_two_blocks_of_query_rows(train, holdout):
+    stop = CountingStop(after=2)
+    with pytest.raises(PrivacyCheckStopped):
+        closest_record_distances(holdout, train, CONTRACT, batch_size=10, stop_event=stop)
+    assert stop.looks == 3                         # two blocks computed, the third never started
+
+
+def blocks(n_rows: int) -> int:
+    return -(-n_rows // DCR_BATCH_SIZE)
+
+
+def test_an_unset_stop_changes_nothing_and_is_seen_in_all_three_searches(train, holdout, fresh):
+    never = CountingStop(after=10**9)
+    assert privacy_check(fresh, train, holdout, CONTRACT, stop_event=never) == privacy_check(fresh, train, holdout,
+                                                                                             CONTRACT)
+    assert never.looks == 2 * blocks(len(fresh)) + blocks(len(holdout))   # synthetic → train, → holdout; holdout → train
+
+
+# --------------------------------------------------------------------------------------------
+# Point masses: the indicator does not count in the distance (the value already says it)
+# --------------------------------------------------------------------------------------------
+
+# CONTRACT with a mass on 'age' = 17 (scaled 0): age takes [continuous, yes, no], every other column shifts by 2.
+MASS_CONTRACT = SchemaContract(version=5, width=9, columns=[
+    ContractColumn("age", "numeric", 0, 3, min=17.0, max=90.0, integer=True, mass=17),
+    ContractColumn("sex", "categorical", 3, 5, levels=("F", "M")),
+    ContractColumn("bmi", "numeric", 5, 6, min=15.0, max=60.0, integer=False),
+    ContractColumn("grade", "categorical", 6, 9, levels=("a", "b", "c")),
+], dropped=[], rows={}, issues=[])
+
+
+def with_indicator(rows: np.ndarray) -> np.ndarray:
+    """Rows of CONTRACT encoded for MASS_CONTRACT: the indicator says yes where age is at its mass (scaled 0)."""
+    on_mass = rows[:, 0] == 0
+    return np.column_stack([rows[:, :1], on_mass, ~on_mass, rows[:, 1:]]).astype(np.float32)
+
+
+def with_mass_rows(rows: np.ndarray, share: float, seed: int) -> np.ndarray:
+    """Some rows moved onto the mass (age scaled 0), as in a column with a point mass."""
+    out = rows.copy()
+    out[np.random.default_rng(seed).random(len(rows)) < share, 0] = 0
+    return out
+
+
+def test_distance_with_a_mass_equals_the_distance_without(train, holdout):
+    queries, reference = with_mass_rows(holdout, 0.4, seed=5), with_mass_rows(train, 0.4, seed=6)
+    expected = closest_record_distances(queries, reference, CONTRACT)
+    found = closest_record_distances(with_indicator(queries), with_indicator(reference), MASS_CONTRACT)
+    assert np.allclose(found, expected, atol=ATOL)
+
+
+def test_rows_differing_only_in_the_indicator_are_identical():
+    x = with_indicator(row(0.3, "F", 0.7, "b")[None, :])
+    flipped = x.copy()
+    flipped[0, 1:3] = flipped[0, 2:0:-1]
+    assert closest_record_distances(flipped, x, MASS_CONTRACT) == pytest.approx([0.0], abs=ATOL)
+
+
+def test_privacy_check_with_a_mass_gives_the_same_report(train, holdout, fresh):
+    synthetic, real = with_mass_rows(fresh, 0.4, seed=7), with_mass_rows(train, 0.4, seed=8)
+    reference = with_mass_rows(holdout, 0.4, seed=9)
+    expected = privacy_check(synthetic, real, reference, CONTRACT)
+    found = privacy_check(with_indicator(synthetic), with_indicator(real), with_indicator(reference), MASS_CONTRACT)
+    assert found == expected

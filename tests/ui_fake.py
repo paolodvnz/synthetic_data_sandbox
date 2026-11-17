@@ -116,6 +116,7 @@ def validation_details(*, passed: bool = True) -> dict:
         "histograms": data["histograms"], "unseen_pairs_synthetic": 0.01, "unseen_pairs_real": 0.005,
         "warnings": [{"code": "distributions_differ", "message": "Some columns are spread differently.",
                       "column": "age"}],
+        "less_faithful": [],
     }
     privacy = {"passed": passed, "n_compared": 198, "synthetic_percentile": 0.03, "holdout_percentile": 0.025,
                "synthetic_exact_share": 0.0, "holdout_exact_share": 0.0, "exact_share_limit": 0.01,

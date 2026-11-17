@@ -18,6 +18,11 @@ MAX_NULL_MARKERS = 3          # distinct non-numeric words still read as missing
 MIN_LEVEL_ROWS = 10           # fewer rows: a level is merged into "Other", a near-constant column
                               # (rows differing from the most frequent value) is proposed for removal
 
+# Point masses of the numeric columns (train rows; measured on the six samples: columns without a mass have a
+# ratio of 1.0-1.4, columns with one at least 3.4)
+MIN_MASS_SHARE = 0.05          # the most frequent value covers at least this share of the rows...
+MIN_MASS_RATIO = 3             # ...and is at least this many times as frequent as the second value
+
 # Preparation
 HOLDOUT_FRACTION = 0.20        # rows kept apart for the privacy check (DCR), never trained on
 MAX_HOLDOUT_ROWS = 10_000      # a few thousand reference rows are enough for the DCR
@@ -43,6 +48,12 @@ MAX_BAD_LINES_FRACTION = 0.05  # more malformed lines -> the file is probably mi
 SNIFF_BYTES = 64 * 1024        # sample used to detect the separator
 BINARY_PROBE_BYTES = 8 * 1024  # a NUL byte in this prefix -> not a text file
 CANDIDATE_SEPARATORS = ",;\t|"
+
+# Dates: ISO, or day/month/year and month/day/year with one of three separators and a four-digit year. The shape
+# (DATE_SHAPE) says a value looks like such a date; the formats decide which one it is.
+ISO_DATE_FORMAT = "%Y-%m-%d"
+DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%m/%d/%Y", "%m-%d-%Y", "%m.%d.%Y")
+DATE_SHAPE = r"\d{1,2}([/.-])\d{1,2}\1\d{4}"   # the same separator twice
 
 # Compared lower-case after stripping spaces.
 NULL_TOKENS: frozenset[str] = frozenset({"", "?", "na", "n/a", "null", "nan"})

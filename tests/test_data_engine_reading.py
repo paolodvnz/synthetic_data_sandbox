@@ -116,10 +116,22 @@ def test_mostly_numeric_column_warns_and_treats_offenders_as_missing(torture):
     assert torture.frame["num_with_nd"].isna().sum() == make_torture_csv.N_ND
 
 
-def test_mostly_numeric_codes_with_many_different_words_stay_text(torture):
-    # Regression from the real data (diag_1 of Diabetes 130): ICD-9-like codes are labels.
+def test_mostly_numeric_codes_with_many_different_words_stay_text_silently(torture):
+    # Regression from the real data (diag_1 of Diabetes 130): ICD-9-like codes are labels. No value is changed,
+    # so no warning (the warning is only for words turned into missing values).
     assert not pd.api.types.is_numeric_dtype(torture.frame["codes_mixed"])
-    assert "mostly_numeric" in issue_codes(torture, "codes_mixed")
+    assert "mostly_numeric" not in issue_codes(torture, "codes_mixed")
+
+
+def test_years_mixed_with_seasons_are_categories_without_warnings():
+    # Regression from the real data (Year of the CDC COVID deaths): "2020" and "2019/2020" are labels,
+    # neither numbers with markers nor dates.
+    seasons = ["2019/2020", "2020/2021", "2021/2022", "2022/2023", "2023/2024", "2024/2025"]
+    years = [str(2020 + i % 6) for i in range(194)]
+    data = ("year,x\n" + "".join(f"{v},{i % 7}\n" for i, v in enumerate(years + seasons))).encode()
+    inspection = inspect_csv(data)
+    assert inspection.columns["year"].role == "categorical"
+    assert not issue_codes(inspection, "year") & {"mostly_numeric", "mostly_dates"}
 
 
 def test_date_column_is_kept_with_privacy_warning(torture):
@@ -144,6 +156,18 @@ def test_semicolon_separator_and_decimal_comma():
 def test_utf8_bom_is_removed_from_first_column_name():
     data = ("﻿age,sex\n" + "30,M\n30,F\n40,M\n40,F\n" * REPEAT).encode("utf-8")
     assert list(inspect_csv(data).frame.columns) == ["age", "sex"]
+
+
+def test_duplicate_and_empty_column_names_are_made_unique():
+    data = ("age,age,,age\n" + "30,31,a,32\n40,41,b,42\n" * REPEAT).encode()
+    inspection = inspect_csv(data)
+    assert list(inspection.frame.columns) == ["age", "age_2", "column_3", "age_3"]
+    assert {i.column for i in inspection.issues if i.code == "column_renamed"} == {"age_2", "age_3"}
+
+
+def test_a_renamed_duplicate_never_takes_the_name_of_another_column():
+    data = ("age,age,age_2,age_3\n" + "30,31,a,1\n40,41,b,2\n" * REPEAT).encode()
+    assert list(inspect_csv(data).frame.columns) == ["age", "age_4", "age_2", "age_3"]
 
 
 def test_latin1_file_is_read_with_a_warning():

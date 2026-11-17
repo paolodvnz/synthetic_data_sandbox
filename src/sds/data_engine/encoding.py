@@ -5,7 +5,11 @@ after the other in the vector; the positions of each column form the index map n
 loss. No ``ColumnTransformer``: its ``fit`` builds and discards the whole float64 table, and its
 ``transform`` stacks float64 copies before the cast (8.6 GB for a 200 MB CSV). Here each column is
 fit without producing output, and rows are encoded in blocks straight into one float32 array.
-- numeric: ``MinMaxScaler``;
+- numeric: ``MinMaxScaler``. A **point mass** (the most frequent train value, covering at least
+  ``MIN_MASS_SHARE`` of the rows and at least ``MIN_MASS_RATIO`` times as frequent as the second value, e.g. Adult
+  ``capital-gain`` = 0 in 92% of the rows) adds a two-slot one-hot indicator "the row has the mass value" after the
+  scaled value: ``[continuous, yes, no]``. A continuous decoder cannot put a share of rows on one exact value; the
+  indicator can. The scaled value stays as it is on the mass rows (measured: masking it out of the loss is worse);
 - date: days since the first train date, then ``MinMaxScaler``;
 - categorical: ``OneHotEncoder``. Levels with fewer than ``MIN_LEVEL_ROWS`` train rows are merged
   into one "Other" slot (they are learned poorly and could identify someone), and a column has at
@@ -31,8 +35,10 @@ from sds.data_engine.thresholds_config import (
     MAX_CATEGORIES,
     MAX_LISTED_VALUES,
     MIN_LEVEL_ROWS,
+    MIN_MASS_RATIO,
+    MIN_MASS_SHARE,
 )
-from sds.data_engine.types import DataEngineError, Issue
+from sds.data_engine.types import MASS_SLOTS, MASS_YES_SLOT, DataEngineError, Issue
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,8 @@ class FeatureGroup:
         has_other: True when the group ends with the "Other" slot.
         merged: Levels merged into "Other" with their number of train rows (decoding of integer
             columns picks among them with these proportions).
+        mass: Point mass of a numeric column (its value, original type), or ``None``; with a mass the group
+            takes ``[continuous, yes, no]``.
     """
 
     name: str
@@ -58,6 +66,7 @@ class FeatureGroup:
     levels: tuple = ()
     has_other: bool = False
     merged: dict = field(default_factory=dict)
+    mass: object = None
 
 
 @dataclass
@@ -104,21 +113,27 @@ class TabularEncoder:
                 rows = slice(start, start + len(block))
                 for group, transformer in zip(self.groups, self.transformers, strict=True):
                     values = model_input(block[group.name], self.date_origins, self.integer_codes)
-                    vectors[rows, group.start:group.stop] = transformer.transform(values)
+                    vectors[rows, group.start:group.stop] = with_indicator(transformer.transform(values),
+                                                                           block[group.name], group.mass)
         return vectors
 
     def category_slots(self, frame: pd.DataFrame) -> dict[str, np.ndarray]:
-        """One-Hot slot of every categorical column, without encoding the whole vector.
+        """One-Hot slot of every categorical column and point-mass indicator, without encoding the whole vector.
 
         Args:
             frame: Rows with at least the encoded columns, without missing values (train rows: every
                 row has exactly one slot set).
 
         Returns:
-            Column name -> slot index per row (int64), for the categorical groups in vector order.
+            Column name -> slot index per row (int64), for the one-hot groups in vector order (the indicator of
+            a mass column: ``MASS_YES_SLOT`` on the mass value, the other slot elsewhere).
         """
         slots = {}
         for group, transformer in zip(self.groups, self.transformers, strict=True):
+            if group.mass is not None:
+                on_mass = frame[group.name].to_numpy() == group.mass
+                slots[group.name] = np.where(on_mass, MASS_YES_SLOT, 1 - MASS_YES_SLOT).astype(np.int64)
+                continue
             if group.role != "categorical":
                 continue
             column = np.empty(len(frame), dtype=np.int64)
@@ -154,6 +169,33 @@ def model_input(column: pd.Series, date_origins: dict[str, pd.Timestamp],
     elif column.name in integer_codes:
         column = column.astype("int64")
     return column.to_frame()
+
+
+def with_indicator(encoded: np.ndarray, values: pd.Series, mass: object) -> np.ndarray:
+    """The transformer output, followed by the ``[yes, no]`` indicator when the column has a point mass."""
+    if mass is None:
+        return encoded
+    indicator = np.zeros((len(values), MASS_SLOTS), dtype=encoded.dtype)
+    on_mass = values.to_numpy() == mass
+    indicator[on_mass, MASS_YES_SLOT] = 1
+    indicator[~on_mass, 1 - MASS_YES_SLOT] = 1
+    return np.hstack([encoded, indicator])
+
+
+def point_mass(values: pd.Series) -> object:
+    """The point mass of a numeric column (its most frequent value, original type), or ``None``.
+
+    A mass covers at least ``MIN_MASS_SHARE`` of the rows and is at least ``MIN_MASS_RATIO`` times as frequent as
+    the second value (both included). Called on the train rows only. Only the most frequent value is looked at:
+    a column with two masses keeps the second one continuous (declared limit).
+    """
+    counts = values.value_counts()
+    if len(counts) < 2:
+        return None
+    top, second = int(counts.iloc[0]), int(counts.iloc[1])
+    if top / len(values) >= MIN_MASS_SHARE and top >= MIN_MASS_RATIO * second:
+        return python_value(counts.index[0])
+    return None
 
 
 def python_value(value: object) -> object:
@@ -240,7 +282,8 @@ def fit_encoder(train: pd.DataFrame, schema: FinalSchema) -> TabularEncoder:
     for column in kept:
         values = model_input(train[column.name], date_origins, integer_codes)
         transformer = column_transformer(column.role).fit(values)
-        stop = start + len(transformer.get_feature_names_out())
+        mass = point_mass(train[column.name]) if column.role == "numeric" else None
+        stop = start + len(transformer.get_feature_names_out()) + (0 if mass is None else MASS_SLOTS)
         levels, merged = (), {}
         if column.role == "categorical":
             infrequent = transformer.infrequent_categories_[0]
@@ -258,6 +301,7 @@ def fit_encoder(train: pd.DataFrame, schema: FinalSchema) -> TabularEncoder:
             levels=levels,
             has_other=bool(merged),
             merged=merged,
+            mass=mass,
         ))
         transformers.append(transformer)
         start = stop

@@ -4,10 +4,11 @@ Built after fitting the encoder. Three readers:
 - the decoder, which reads only the contract (never the scikit-learn internals);
 - the UI, which shows the report (columns used and left out, rows, warnings);
 - the LLM, which gets ``llm_schema()``: names, types and values of the synthetic data, no statistics.
-The contract also keeps, for every pair of categorical columns, the One-Hot slot pairs seen together in
-the train rows: decoding samples each group on its own and repairs the rows that pair values no real
-row pairs (e.g. "education" HS-grad with "education-num" 10). They describe the real data, so they stay
-local like the rest of the contract and never reach ``llm_schema()``.
+The contract also keeps, for every pair of one-hot groups (categorical columns and the indicators of the point
+masses), the slot pairs seen together in the train rows: decoding samples each group on its own and repairs the
+rows that pair values no real row pairs (e.g. "education" HS-grad with "education-num" 10, or Adult
+"capital-gain" and "capital-loss" both non-zero). They describe the real data, so they stay local like the rest
+of the contract and never reach ``llm_schema()``. Neither does the point mass: the LLM sees a plain number.
 Stored as JSON, never pickle: readable, and loading it cannot run code. The fitted encoder itself
 stays in memory for the session.
 """
@@ -24,9 +25,10 @@ from sds.data_engine.choices import FinalSchema
 from sds.data_engine.encoding import FeatureGroup, TabularEncoder
 from sds.data_engine.preparation import PreparedData
 from sds.data_engine.thresholds_config import DECIMALS_TOLERANCE, MAX_DECIMALS
-from sds.data_engine.types import USABLE_ROLES, CsvInspection, DataEngineError, Issue
+from sds.data_engine.types import MASS_SLOTS, USABLE_ROLES, CsvInspection, DataEngineError, Issue
 
-CONTRACT_VERSION = 4      # 2: seen pairs of categorical slots; 3: decimals of the numeric columns; 4: decimal codes
+CONTRACT_VERSION = 6      # 2: seen pairs of categorical slots; 3: decimals of the numeric columns; 4: decimal codes;
+                          # 5: point masses of the numeric columns; 6: format of the date columns
 OTHER_LABEL = "Other"   # how merged rare text levels appear in the synthetic data
 
 
@@ -38,7 +40,7 @@ class ContractColumn:
         name: Column name.
         role: ``numeric``, ``date`` or ``categorical``.
         start: First position in the vector.
-        stop: Position after the last one.
+        stop: Position after the last one (a numeric column with a point mass takes ``[continuous, yes, no]``).
         min: Train minimum (numeric; date: in days from ``origin``, so 0).
         max: Train maximum (numeric; date: in days from ``origin``).
         integer: Whole numbers (numeric: round when decoding; categorical: integer codes).
@@ -46,9 +48,13 @@ class ContractColumn:
         decimals: Decimals of the train values (numeric, not whole numbers): the synthetic numbers are rounded to
             them; ``None``: no rounding (computed values with more than ``MAX_DECIMALS``).
         origin: First train date, ISO format (date columns only).
+        date_format: How the file writes the dates (``strftime``, date columns only): the downloaded CSV writes
+            them back the same way; inside the app they stay dates.
         levels: Kept levels in slot order, original type (categorical only).
         has_other: The group ends with the "Other" slot (categorical only).
         merged: ``((level, train rows), ...)`` of the levels merged into "Other".
+        mass: Point mass of a numeric column (int for whole numbers), or ``None``: decoding writes exactly this
+            value where the indicator says yes.
     """
 
     name: str
@@ -64,6 +70,8 @@ class ContractColumn:
     levels: tuple = ()
     has_other: bool = False
     merged: tuple[tuple, ...] = ()
+    mass: int | float | None = None
+    date_format: str | None = None
 
     def to_dict(self) -> dict:
         """JSON-ready dict with only the fields of this role."""
@@ -73,8 +81,10 @@ class ContractColumn:
                      "has_other": self.has_other, "merged": [list(pair) for pair in self.merged]}
         else:
             data |= {"min": self.min, "max": self.max}
-            data |= {"origin": self.origin} if self.role == "date" else {"integer": self.integer,
-                                                                          "decimals": self.decimals}
+            if self.role == "date":
+                data |= {"origin": self.origin, "date_format": self.date_format}
+            else:
+                data |= {"integer": self.integer, "decimals": self.decimals, "mass": self.mass}
         return data
 
     @property
@@ -92,6 +102,21 @@ class ContractColumn:
 
 
 @dataclass(frozen=True)
+class OneHotGroup:
+    """Positions of one one-hot group: a categorical column, or the indicator of a point mass.
+
+    Attributes:
+        name: Name of its column (a column has at most one group).
+        start: First slot in the vector.
+        stop: Position after the last slot.
+    """
+
+    name: str
+    start: int
+    stop: int
+
+
+@dataclass(frozen=True)
 class DroppedColumn:
     """A column of the file that is not in the synthetic data, and why (plain language)."""
 
@@ -101,13 +126,13 @@ class DroppedColumn:
 
 @dataclass(frozen=True)
 class SeenPairs:
-    """Slot pairs of two categorical columns found together in at least one train row.
+    """Slot pairs of two one-hot groups (categorical columns or point-mass indicators) found together in train.
 
     Attributes:
         first: Name of the column that comes first in the contract.
         second: Name of the other column.
         slots: ``((slot of first, slot of second), ...)``, sorted; slots index the One-Hot group
-            (the "Other" slot included).
+            (the "Other" slot included; an indicator: ``MASS_YES_SLOT`` = the mass value).
     """
 
     first: str
@@ -126,8 +151,8 @@ class SchemaContract:
         dropped: Columns of the file left out, in file order.
         rows: Row counts: ``read``, ``removed``, ``train``, ``holdout``.
         issues: Warnings of every stage (reading, choices, preparation, encoding).
-        seen_pairs: For every pair of categorical columns, the slot pairs seen in train. A pair of
-            columns without an entry is not checked when decoding.
+        seen_pairs: For every pair of one-hot groups (``onehot_groups``), the slot pairs seen in train. A pair
+            of columns without an entry is not checked when decoding.
     """
 
     version: int
@@ -174,6 +199,20 @@ class SchemaContract:
             seen_pairs=[SeenPairs(p["first"], p["second"], tuple(tuple(s) for s in p["slots"]))
                         for p in data["seen_pairs"]],
         )
+
+    def onehot_groups(self) -> list[OneHotGroup]:
+        """Every one-hot group in vector order: categorical columns and point-mass indicators.
+
+        What the VAE learns with a cross-entropy, decoding samples, and the coherence repair checks. Not the
+        privacy distance: there an indicator would count its column twice (the value already says it).
+        """
+        groups = []
+        for c in self.columns:
+            if c.role == "categorical":
+                groups.append(OneHotGroup(c.name, c.start, c.stop))
+            elif c.mass is not None:
+                groups.append(OneHotGroup(c.name, c.stop - MASS_SLOTS, c.stop))
+        return groups
 
     def llm_schema(self) -> list[dict]:
         """What the LLM may know: names, types and possible values of the synthetic data.
@@ -229,10 +268,12 @@ def contract_column(group: FeatureGroup, encoder: TabularEncoder, inspection: Cs
     low, high = encoder.value_range(group.name)
     if group.role == "date":
         origin = encoder.date_origins[group.name].date().isoformat()
-        return ContractColumn(**base, min=low, max=high, origin=origin)
+        return ContractColumn(**base, min=low, max=high, origin=origin,
+                              date_format=inspection.columns[group.name].date_format)
     integer = inspection.columns[group.name].is_integer
     decimals = None if integer else decimal_places(train[group.name])
-    return ContractColumn(**base, min=low, max=high, integer=integer, decimals=decimals)
+    mass = None if group.mass is None else (int(group.mass) if integer else float(group.mass))
+    return ContractColumn(**base, min=low, max=high, integer=integer, decimals=decimals, mass=mass)
 
 
 def dropped_columns(inspection: CsvInspection, schema: FinalSchema, encoder: TabularEncoder) -> list[DroppedColumn]:
@@ -257,7 +298,7 @@ def dropped_columns(inspection: CsvInspection, schema: FinalSchema, encoder: Tab
 
 
 def seen_pairs(encoder: TabularEncoder, train: pd.DataFrame) -> list[SeenPairs]:
-    """Slot pairs found together in the train rows, for every pair of categorical columns."""
+    """Slot pairs found together in the train rows, for every pair of one-hot groups (point masses included)."""
     slots = encoder.category_slots(train)
     found = []
     for first, second in combinations(slots, 2):
