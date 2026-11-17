@@ -1,5 +1,7 @@
 """Specification tests for the training job: train → generate → validate in a thread, status, stop.
 
+The two deliveries (synthetic table and fidelity before the privacy check) are in ``test_api_privacy_pending.py``.
+
 Every wait has a timeout (``join(timeout)``, loops with a deadline): a concurrency bug must fail a test,
 not hang the suite.
 """
@@ -116,26 +118,6 @@ def test_default_budget_and_loss(session, monkeypatch):
     assert seen["max_steps"] == expected == job.max_steps
     assert seen["loss"] == MIXED_SIGMA_LOSS and seen["n_rows"] == len(session.prepared.train)
     assert callable(seen["on_progress"]) and seen["stop_event"] is job.stop_event
-
-
-def test_results_appear_only_at_the_end(session, monkeypatch):
-    entered, release = blocking(monkeypatch, "privacy_check")
-    job = start_training(session, **FAST)
-    assert entered.wait(WAIT_SECONDS)
-    assert job.phase is Phase.VALIDATING and job.state is JobState.RUNNING
-    assert session.stage is Stage.PREPARED and session.trained is None and session.synthetic is None
-    release.set()
-    assert finished(job).state is JobState.DONE and session.stage is Stage.VALIDATED
-
-
-def test_phases_in_order(session, monkeypatch):
-    phases = []
-    for name in ("generate", "fidelity_report", "privacy_check"):
-        real = getattr(api.pipeline, name)
-        monkeypatch.setattr(api.pipeline, name,
-                            lambda *a, _real=real, **k: phases.append(session.job.phase) or _real(*a, **k))
-    finished(start_training(session, **FAST))
-    assert phases == [Phase.GENERATING, Phase.VALIDATING, Phase.VALIDATING]
 
 
 def test_a_new_training_starts_from_scratch(session):
@@ -344,18 +326,7 @@ def test_unexpected_error_hides_the_details(session, monkeypatch):
     change_choices(session, UserChoices(excluded={"city"}).to_dict())
 
 
-def test_orphan_thread_writes_nothing(session, monkeypatch):
-    entered, release = blocking(monkeypatch, "privacy_check")
-    job = start_training(session, **FAST)
-    assert entered.wait(WAIT_SECONDS)
-    session.job = Job(job_id="newer", max_steps=1, state=JobState.STOPPED)   # e.g. after a reset
-    release.set()
-    finished(job)
-    assert session.stage is Stage.PREPARED and session.trained is None
-
-
 # --- HTTP -----------------------------------------------------------------------------------
-
 def client(*, dev_mode: bool = False, options: dict = FAST) -> TestClient:
     app = create_app(dev_mode=dev_mode)
     app.state.train_options = dict(options)

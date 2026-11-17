@@ -87,14 +87,14 @@ def missing_label(fraction: float) -> str:
 
 
 def columns_frame(data: dict) -> pd.DataFrame:
-    """The table of columns of the Upload step: a "Keep" tick, the reading, the missing values, why, examples, notes."""
+    """The table of columns of the Upload step: a "Keep" tick, examples, the missing values, the reading, why, notes."""
     notes = notes_by_column(data["issues"])
     return pd.DataFrame([{
         "Keep": c["final_role"] is not None,
         "Column": c["name"],
-        "We read it as": ROLE_LABELS[c["final_role"] or c["role"]],
-        "Missing": missing_label(c["null_fraction"]),
-        "Why": c["reason"],
         "Examples": ", ".join(c["examples"]),
+        "Missing": missing_label(c["null_fraction"]),
+        "Read as": ROLE_LABELS[c["final_role"] or c["role"]],
+        "Why": c["reason"],
         "Notes": " ".join(notes.get(c["name"], [])),
     } for c in data["columns"]])

@@ -39,11 +39,11 @@ def session():
 
 
 def test_empty_session():
-    assert session_view(Session()) == {"stage": "empty", "job": None}
+    assert session_view(Session()) == {"stage": "empty", "job": None, "gate_passed": None}
 
 
 def test_prepared_session_without_a_job(session):
-    assert session_view(session) == {"stage": "prepared", "job": None}
+    assert session_view(session) == {"stage": "prepared", "job": None, "gate_passed": None}
 
 
 def test_running_job_is_shown_with_the_prepared_stage(session):
@@ -60,6 +60,23 @@ def test_job_is_the_same_view_as_status(session):
     assert view["stage"] == "validated"
     assert view["job"] == job_view(session, job.job_id) | {"elapsed_seconds": view["job"]["elapsed_seconds"]}
     assert view["job"]["state"] == "done"
+    assert view["gate_passed"] is session.privacy.passed
+
+
+@pytest.mark.parametrize("passed", [True, False])
+def test_the_view_tells_whether_the_gate_passed(session, passed):
+    """The UI opens the Ask step only when it did: a failed gate would lead the user into a dead end."""
+    import dataclasses
+
+    start_training(session, **FAST).thread.join(WAIT_SECONDS)
+    session.privacy = dataclasses.replace(session.privacy, passed=passed)
+    assert session_view(session)["gate_passed"] is passed
+
+
+def test_no_gate_while_a_new_training_runs(session):
+    start_training(session, **FAST).thread.join(WAIT_SECONDS)
+    start_training(session, **ENDLESS)
+    assert session_view(session)["gate_passed"] is None
 
 
 def test_stopped_job_stays_visible(session):
@@ -72,13 +89,13 @@ def test_stopped_job_stays_visible(session):
 def test_after_reset_nothing_is_left(session):
     start_training(session, **FAST).thread.join(WAIT_SECONDS)
     reset_session(session)
-    assert session_view(session) == {"stage": "empty", "job": None}
+    assert session_view(session) == {"stage": "empty", "job": None, "gate_passed": None}
 
 
 def test_http_session():
     c = TestClient(create_app(dev_mode=False), raise_server_exceptions=False)
     c.app.state.train_options = dict(FAST)
-    assert c.get("/session").json() == {"stage": "empty", "job": None}
+    assert c.get("/session").json() == {"stage": "empty", "job": None, "gate_passed": None}
     assert c.post("/upload", params={"name": "p.csv"}, content=make_csv(), headers=CSV_HEADERS).status_code == 200
     job_id = c.post("/train").json()["job_id"]
     deadline = time.monotonic() + WAIT_SECONDS

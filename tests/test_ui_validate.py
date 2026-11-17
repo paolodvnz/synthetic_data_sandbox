@@ -131,9 +131,15 @@ def test_heatmaps_and_one_histogram_at_a_time(fake):
     assert not app.exception
 
 
-def test_ask_stays_disabled(fake):
+def test_ask_opens_when_the_gate_passes(fake):
     fake()
-    assert run_app().button(key="step_ask").disabled
+    assert not run_app().button(key="step_ask").disabled
+
+
+def test_ask_stays_disabled_when_the_gate_fails(fake):
+    fake(passed=False)
+    button = run_app().button(key="step_ask")
+    assert button.disabled and "privacy check" in button.help
 
 
 def test_developer_panels_of_the_validate_step(fake):
@@ -188,3 +194,100 @@ def test_the_downloaded_file_gets_the_name_from_the_api(fake, monkeypatch):
     run_app()
     assert seen["download_csv"]["file_name"] == "patients_synthetic.csv"
     assert seen["download_csv"]["data"]() == b"age;sex;visits\n40;F;2\n"
+
+
+# --- while the privacy check runs -------------------------------------------------------------
+
+@pytest.fixture
+def checking(monkeypatch):
+    def make(*, dev_mode: bool = False, stop_requested: bool = False) -> FakeApi:
+        view = {"stage": "generated",
+                "job": job("running", step=100, phase="checking_privacy", stop_requested=stop_requested)}
+        return install(monkeypatch, FakeApi(view, dev_mode=dev_mode, data=dataset()))
+    return make
+
+
+def test_the_comparison_is_shown_while_privacy_is_checked(checking):
+    api = checking()
+    app = run_app()                                          # a refresh during the check opens on Validate
+    assert "Checking privacy" in texts(app.info)
+    assert not app.success and not app.error and not download_buttons(app) and not app.dataframe
+    assert len(app.get("vega_lite_chart")) == 2              # heatmaps + histogram, to judge by eye meanwhile
+    warnings = texts(app.warning)
+    assert "spread differently" in warnings and "near copies" not in warnings
+    assert app.button(key="step_ask").disabled and api.downloads == 0
+
+
+def test_the_histogram_can_be_changed_while_privacy_is_checked(checking):
+    checking()
+    app = run_app()
+    app.selectbox(key="histogram_column").set_value("sex").run()
+    assert not app.exception and app.selectbox(key="histogram_column").value == "sex"
+
+
+def test_the_end_of_the_check_shows_the_gate(checking):
+    api = checking()
+    app = run_app()
+    api.view = {"stage": "validated", "job": job("done", step=100)}
+    app.run()
+    assert not app.exception and "Privacy check passed" in texts(app.success)
+    assert len(download_buttons(app)) == 1 and "Checking privacy" not in texts(app.info)
+    assert not app.button(key="step_ask").disabled
+
+
+def test_stop_and_discard(checking):
+    api = checking()
+    app = run_app()
+    button = app.button(key="stop_check")
+    assert button.label == "Stop and discard" and "train again" in texts(app.caption)
+    button.click().run()
+    assert not app.exception and api.stops == 1
+    assert app.session_state["step"] == "train" and "Training stopped" in texts(app.info)
+
+
+def test_a_stop_still_waiting_is_shown(checking):
+    checking(stop_requested=True)
+    app = run_app()
+    assert app.button(key="stop_check").disabled and app.button(key="stop_check").label == "Stopping…"
+
+
+def test_developer_panels_while_privacy_is_checked(checking):
+    checking(dev_mode=True)
+    app = run_app()
+    app.toggle(key="dev_panels").set_value(True).run()
+    assert not app.exception and not app.error
+    assert any({"z", "excess"} <= set(d.value.columns) for d in app.dataframe)
+    assert "still running" in texts(app.caption)
+
+
+# --- the fragments alone: in the browser they run without the page, so their own rerun must fire --------------
+
+def fragment_script(module: str, function: str, *more) -> None:
+    """Runs one fragment by itself, as the browser does every POLL_SECONDS (``st.rerun`` is spied on)."""
+    import importlib
+
+    getattr(importlib.import_module(module), function)("abc", *more)
+
+
+@pytest.mark.parametrize("module, function, more, phase, state, reruns", [
+    ("ui.validate_step", "live_check", (), "checking_privacy", "running", False),
+    ("ui.validate_step", "live_check", (), "checking_privacy", "done", True),       # the gate is known
+    ("ui.validate_step", "live_check", (), "checking_privacy", "stopped", True),    # the table was dropped
+    ("ui.train_step", "live_job", (False,), "training", "running", False),
+    ("ui.train_step", "live_job", (False,), "checking_privacy", "running", True),  # the table is ready
+    ("ui.train_step", "live_job", (False,), "training", "done", True),
+])
+def test_a_fragment_redraws_the_page_when_its_job_moves_on(monkeypatch, module, function, more, phase, state,
+                                                            reruns):
+    import streamlit
+
+    install(monkeypatch, FakeApi({"stage": "generated", "job": job(state, phase=phase)}, data=dataset()))
+    calls = []
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        streamlit.stop()
+
+    monkeypatch.setattr(streamlit, "rerun", spy)
+    app = AppTest.from_function(fragment_script, args=(module, function, *more), default_timeout=WAIT_SECONDS).run()
+    assert not app.exception and bool(calls) is reruns

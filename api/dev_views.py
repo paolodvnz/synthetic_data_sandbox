@@ -130,9 +130,11 @@ def training_view(session: Session) -> dict:
 def validation_details_view(session: Session) -> dict:
     """The full fidelity and privacy reports (distances, baselines, z, excesses, DCR percentiles).
 
+    The fidelity report comes first: ``privacy`` is ``None`` while the check runs.
+
     Raises:
         ApiError: 409 with the code of the first missing stage.
     """
     with session.lock:
-        session.require(Stage.VALIDATED)
+        session.require(Stage.GENERATED)
         return {"fidelity": to_jsonable(session.fidelity), "privacy": to_jsonable(session.privacy)}

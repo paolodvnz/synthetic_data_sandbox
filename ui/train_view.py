@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-PHASE_TEXT = {"generating": "Creating the synthetic data…", "validating": "Checking privacy and quality…"}
+PHASE_TEXT = {"generating": "Creating the synthetic data…", "comparing": "Comparing with your data…"}
 LOSS_COMPONENTS = ("numeric", "categorical", "kl")
 SECONDS_PER_MINUTE = 60
 

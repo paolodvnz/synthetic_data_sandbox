@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest
 import ui.api_client
 from sds.config import PROJECT_ROOT
 from ui.api_client import ApiRefused, ApiUnavailable
-from ui.navigation import Step, default_step, reachable_steps
+from ui.navigation import Step, checking_privacy, default_step, reachable_steps
 from ui_fake import FakeApi, dataset, install, job
 
 APP = str(PROJECT_ROOT / "ui" / "app.py")
@@ -23,14 +23,17 @@ WAIT_SECONDS = 30
     ("inspected", False, {Step.UPLOAD}),                  # not ready: the choices must be fixed first
     ("prepared", False, {Step.UPLOAD, Step.TRAIN}),
     ("prepared", True, {Step.UPLOAD, Step.TRAIN}),
+    ("generated", True, {Step.UPLOAD, Step.TRAIN, Step.VALIDATE}),   # the comparison, while privacy is checked
     ("validated", False, {Step.UPLOAD, Step.TRAIN, Step.VALIDATE}),
 ])
 def test_reachable_steps(stage, running, expected):
-    assert reachable_steps({"stage": stage, "job": job() if running else None}) == expected
+    gate = False if stage == "validated" else None
+    assert reachable_steps({"stage": stage, "job": job() if running else None, "gate_passed": gate}) == expected
 
 
-def test_ask_is_never_reachable_yet():
-    assert Step.ASK not in reachable_steps({"stage": "validated", "job": job("done")})
+def test_ask_opens_only_when_the_privacy_gate_passed():
+    assert Step.ASK in reachable_steps({"stage": "validated", "job": job("done"), "gate_passed": True})
+    assert Step.ASK not in reachable_steps({"stage": "validated", "job": job("done"), "gate_passed": False})
 
 
 @pytest.mark.parametrize("stage, job_state, expected", [
@@ -39,11 +42,23 @@ def test_ask_is_never_reachable_yet():
     ("prepared", "running", Step.TRAIN),                  # a refresh during the training goes back to the bar
     ("prepared", "stopped", Step.TRAIN),                  # the outcome of the last job is shown where it ran
     ("prepared", "failed", Step.TRAIN),
+    ("generated", "running", Step.VALIDATE),              # a refresh during the privacy check
     ("validated", "done", Step.VALIDATE),
 ])
 def test_default_step(stage, job_state, expected):
-    view = {"stage": stage, "job": job(job_state) if job_state else None}
+    view = {"stage": stage, "job": job(job_state) if job_state else None, "gate_passed": None}
     assert default_step(view) is expected
+
+
+@pytest.mark.parametrize("state, phase, expected", [
+    ("running", "checking_privacy", True),
+    ("running", "comparing", False),
+    ("done", "checking_privacy", False),                   # an ended job keeps its last phase
+    ("stopped", "checking_privacy", False),
+])
+def test_checking_privacy(state, phase, expected):
+    assert checking_privacy(job(state, phase=phase)) is expected
+    assert checking_privacy(None) is False
 
 
 # --- the page ---------------------------------------------------------------------------------
@@ -84,7 +99,7 @@ def test_validated_session_resumes_on_validate(fake):
     fake({"stage": "validated", "job": job("done")})
     app = run_app()
     assert app.session_state["step"] == Step.VALIDATE.value
-    assert step_button(app, Step.ASK).disabled
+    assert not step_button(app, Step.ASK).disabled           # the fake's gate passes
 
 
 def test_clicking_a_reachable_step_opens_it(fake):
@@ -144,7 +159,7 @@ def test_developer_panel_shows_the_session_view(fake):
     app = run_app()
     assert not app.json
     app.toggle(key="dev_panels").set_value(True).run()
-    assert '{"stage": "prepared", "job": null}' in [j.value for j in app.json]
+    assert '{"gate_passed": null, "stage": "prepared", "job": null}' in [j.value for j in app.json]
 
 
 def test_api_going_down_gives_a_plain_message(fake, monkeypatch):
@@ -195,7 +210,7 @@ def test_start_over_keeps_the_developer_toggle(fake):
     app.button(key="start_over").click().run()
     app.button(key="start_over_confirm").click().run()
     assert app.toggle(key="dev_panels").value
-    assert '{"stage": "empty", "job": null}' in [j.value for j in app.json]
+    assert '{"gate_passed": null, "stage": "empty", "job": null}' in [j.value for j in app.json]
 
 
 # --- Close: shut the whole app down from the page (only when sds-app started it) ------------------

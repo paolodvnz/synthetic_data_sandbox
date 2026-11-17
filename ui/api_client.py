@@ -6,7 +6,14 @@ import os
 
 import requests
 
-from ui.ui_config import API_URL_ENV, DEFAULT_API_URL, REQUEST_SECONDS, STOP_REQUEST_SECONDS, WORK_REQUEST_SECONDS
+from ui.ui_config import (
+    API_URL_ENV,
+    ASK_REQUEST_SECONDS,
+    DEFAULT_API_URL,
+    REQUEST_SECONDS,
+    STOP_REQUEST_SECONDS,
+    WORK_REQUEST_SECONDS,
+)
 
 
 class ApiUnavailable(Exception):
@@ -152,3 +159,23 @@ def download_csv() -> bytes:
 def dev_validation() -> dict:
     """``GET /dev/validation`` (developer mode): the full fidelity and privacy reports."""
     return call("GET", "/dev/validation")
+
+
+def ask(question: str) -> dict:
+    """``POST /ask``: a chart and its explanation (or an answer in words); can take minutes at worst."""
+    return call("POST", "/ask", json={"question": question}, timeout=ASK_REQUEST_SECONDS)
+
+
+def get_conversation() -> dict:
+    """``GET /conversation``: the answered questions of the current conversation."""
+    return call("GET", "/conversation")
+
+
+def new_conversation() -> dict:
+    """``POST /conversation/new``: forget the questions, keep the model and the synthetic data."""
+    return call("POST", "/conversation/new")
+
+
+def dev_llm() -> dict:
+    """``GET /dev/llm`` (developer mode): model, system prompt and the raw answers of the latest question."""
+    return call("GET", "/dev/llm")

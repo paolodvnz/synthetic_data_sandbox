@@ -11,3 +11,4 @@ STOP_REQUEST_SECONDS = 330                  # /reset and /train/stop wait for th
 WORK_REQUEST_SECONDS = 300                  # /upload, /choices, samples: reading a 200 MB file takes ~1 min
 UPLOAD_TYPES = ["csv", "txt"]
 POLL_SECONDS = 1                            # how often the progress bar asks /status
+ASK_REQUEST_SECONDS = 330                   # /ask at worst: model 120 s + run 30 s + fix 120 s + run 30 s, plus margin

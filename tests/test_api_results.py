@@ -20,7 +20,7 @@ from api.main import create_app
 from api.pipeline import start_training
 from api.results import content_disposition, download_name, synthetic_csv, validation_view
 from api.session import Session, Stage
-from api_csv import make_csv
+from api_csv import dated_csv, make_csv
 from sds.data_engine import Issue, UserChoices
 from sds.vae.model import Architecture
 
@@ -277,3 +277,34 @@ def test_content_disposition_survives_quotes_and_backslashes():
     fallback = header.split('filename="', 1)[1].split('"', 1)[0]
     assert fallback == "abc.csv"
     assert "filename*=UTF-8''a%22b%5Cc.csv" in header
+
+
+def test_csv_with_point_masses_has_only_the_columns_of_the_file():
+    """The indicators of the point masses live in the vector only: the file the user takes away (and the LLM's
+    sandbox reads) has the columns of the uploaded file and nothing else."""
+    from test_data_engine_encoding import make_csv as table_csv
+    from test_data_engine_point_mass import mass_columns
+
+    columns = mass_columns()
+    session = pass_gate(validated(table_csv(columns)))
+    assert any(c.mass is not None for c in session.contract.columns)
+    header = synthetic_csv(session).decode("utf-8").splitlines()[0].split(",")
+    assert header == list(columns)
+
+
+@pytest.mark.parametrize("date_format", ["%d/%m/%Y", "%m.%d.%Y", "%Y-%m-%d"])
+def test_preview_shows_the_dates_as_in_the_uploaded_file(date_format):
+    """The preview shows the rows the user will download: dates as in the file, no time of day."""
+    session = pass_gate(validated(dated_csv(date_format), "visits.csv"))
+    preview = validation_view(session)["preview"]
+    shown = [row[preview["columns"].index("visit")] for row in preview["rows"]]
+    assert shown == session.synthetic["visit"].head(PREVIEW_ROWS).dt.strftime(date_format).tolist()
+
+
+@pytest.mark.parametrize("date_format", ["%d/%m/%Y", "%m.%d.%Y", "%Y-%m-%d"])
+def test_csv_writes_the_dates_as_in_the_uploaded_file(date_format):
+    """The user takes the dates back in the format of the file; inside the app they stay dates."""
+    session = pass_gate(validated(dated_csv(date_format), "visits.csv"))
+    back = pd.read_csv(io.BytesIO(synthetic_csv(session)), dtype=str)
+    assert back["visit"].tolist() == session.synthetic["visit"].dt.strftime(date_format).tolist()
+    assert pd.api.types.is_datetime64_any_dtype(session.synthetic["visit"])

@@ -38,9 +38,16 @@ STATUS_CONFLICT = 409               # the request is fine but the session is not
 STATUS_TOO_LARGE = 413              # the upload is over MAX_UPLOAD_BYTES
 STATUS_UNPROCESSABLE = 422          # the data cannot be used (DataEngineError, VaeError)
 STATUS_INTERNAL = 500               # a bug: the details stay in the log
+STATUS_BAD_GATEWAY = 502            # the provider, or the code it wrote, gave no usable answer
+STATUS_UNAVAILABLE = 503            # the provider is busy or unreachable: asking again later can work
 
 # /shutdown without sds-app: nobody would stop the UI, so the API does not end itself.
 NOT_CLOSABLE_MESSAGE = ("The app was not started with sds-app, so it cannot be closed from the page: "
                         "stop it from the terminal (Ctrl+C).")
+
+# Ask step: one question at a time (it can take minutes: model, run, fix, run again).
+QUESTION_RUNNING_MESSAGE = "A question is already being answered: please wait for its answer."
+CHART_NOTE = "This chart uses '{name}': in the synthetic data {difference}."   # a less faithful column
+PRIVACY_PENDING_MESSAGE = "The privacy check is still running: wait for it to finish."
 
 INTERNAL_ERROR_MESSAGE = "Something went wrong on our side. Please try again, or start over with Reset."

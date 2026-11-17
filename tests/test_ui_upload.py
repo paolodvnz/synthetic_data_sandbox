@@ -93,7 +93,7 @@ def test_the_columns_table_shows_the_share_of_missing_values():
     data = dataset()
     data["columns"][1]["null_fraction"] = 0.25
     table = columns_frame(data)
-    assert list(table.columns) == ["Keep", "Column", "We read it as", "Missing", "Why", "Examples", "Notes"]
+    assert list(table.columns) == ["Keep", "Column", "Examples", "Missing", "Read as", "Why", "Notes"]
     assert table["Missing"].tolist() == ["0%", "25.0%", "0%", "0%"]
     assert table["Keep"].tolist() == [False, True, True, True]           # the identifier is left out
     assert "identifier" in table.loc[0, "Notes"]

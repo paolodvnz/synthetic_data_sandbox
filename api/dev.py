@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 
 from api.api_config import STATUS_NOT_FOUND
+from api.ask import llm_view
 from api.dataset import dataset_view, load_dataset
 from api.dev_views import (
     contract_view,
@@ -77,3 +78,9 @@ def training(request: Request) -> dict:
 def validation(request: Request) -> dict:
     """The full fidelity and privacy reports."""
     return validation_details_view(request.app.state.session)
+
+
+@router.get("/llm")
+def llm(request: Request) -> dict:
+    """Provider and model (never the key), full system prompt, and the latest question with its raw answers."""
+    return llm_view(request.app.state.session, request.app.state.llm)

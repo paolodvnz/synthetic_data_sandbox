@@ -22,7 +22,7 @@ def test_progress_follows_the_steps_then_the_phases():
     assert progress(job(step=25)) == (0.25, "Learning from your data… 25%")
     assert progress(job(step=0)) == (0.0, "Learning from your data… 0%")
     assert progress(job(phase="generating", step=60)) == (1.0, "Creating the synthetic data…")
-    assert progress(job(phase="validating", step=60)) == (1.0, "Checking privacy and quality…")
+    assert progress(job(phase="comparing", step=60)) == (1.0, "Comparing with your data…")
 
 
 def test_progress_never_passes_the_end():
@@ -111,9 +111,37 @@ def test_the_phases_after_the_training(fake):
     api = fake(job("running", step=60, phase="generating"))
     app = run_app()
     assert "Creating the synthetic data" in app.get("progress")[0].proto.text
-    api.view["job"] = job("running", step=60, phase="validating")
+    api.view["job"] = job("running", step=60, phase="comparing")
     app.run()
-    assert "Checking privacy and quality" in app.get("progress")[0].proto.text
+    assert "Comparing with your data" in app.get("progress")[0].proto.text
+
+
+def test_the_privacy_check_redraws_train_as_ready(fake):
+    """The synthetic table is in the session: Train says so and leads to Validate, where the check goes on."""
+    api = fake(job("running", step=90))
+    app = run_app()
+    api.view = {"stage": "generated", "job": job("running", step=90, phase="checking_privacy")}
+    app.run()
+    assert not app.exception and not app.get("progress")
+    assert "ready" in texts(app.success) and "next_validate" in keys(app)
+    assert "it took" not in texts(app.success)               # the job is still running: no time yet
+    assert "privacy" in texts(app.info).lower() and "step 3" in texts(app.info)
+    assert "stop_training" not in keys(app) and "start_training" not in keys(app)
+    assert not app.button(key="step_validate").disabled and app.button(key="step_ask").disabled
+
+
+def test_a_finished_job_keeps_its_last_phase_without_saying_it_is_checking(fake):
+    fake(job("done", step=100, phase="checking_privacy"))      # as the API: the phase stays the last one
+    app = on_train(run_app())
+    assert "ready" in texts(app.success) and "1 min 42 s" in texts(app.success)
+    assert "being checked" not in texts(app.info)
+
+
+def test_what_happens_tells_where_privacy_is_checked(fake):
+    fake()
+    app = on_train(run_app())
+    text = " ".join(str(m.value) for m in app.markdown)
+    assert "compares it with your data" in text and "step 3" in text
 
 
 def test_stop(fake):

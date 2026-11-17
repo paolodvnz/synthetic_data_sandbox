@@ -13,9 +13,9 @@ import streamlit as st
 # Streamlit runs this file as a script: the project root must be on the path to import the ui package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ui import api_client, dev_panels, state, train_step, upload_step, validate_step  # noqa: E402
+from ui import api_client, ask_step, dev_panels, state, train_step, upload_step, validate_step  # noqa: E402
 from ui.api_client import ApiRefused, ApiUnavailable  # noqa: E402
-from ui.navigation import STEP_LABELS, Step, default_step, reachable_steps  # noqa: E402
+from ui.navigation import ASK_LOCKED_HELP, STEP_LABELS, Step, default_step, reachable_steps  # noqa: E402
 from ui.ui_config import API_DOWN_MESSAGE, APP_TITLE, CLOSED_MESSAGE  # noqa: E402
 
 STEP_KEY, GENERATION_KEY, DEV_KEY, CONFIRM_KEY = (state.STEP, state.UPLOADER_GENERATION, state.DEV_PANELS,
@@ -130,22 +130,23 @@ def goodbye() -> None:
 def step_bar(reachable: set[Step], current: Step) -> None:
     """The four steps in a row: the current one highlighted, the ones not reached yet disabled."""
     for column, step in zip(st.columns(len(Step)), Step):
+        locked = step not in reachable
         column.button(STEP_LABELS[step], key=f"step_{step.value}", on_click=open_step, args=(step,),
-                      disabled=step not in reachable, type="primary" if step is current else "secondary",
-                      width="stretch")
+                      disabled=locked, type="primary" if step is current else "secondary", width="stretch",
+                      help=ASK_LOCKED_HELP if locked and step is Step.ASK else None)
 
 
 def show_step(step: Step, status: dict, view: dict, show_dev: bool) -> None:
-    """The content of ``step`` (Ask: a placeholder until the language model is added)."""
+    """The content of ``step``."""
     st.header(STEP_LABELS[step])
     if step is Step.UPLOAD:
         upload_step.render(status, view, show_dev, open_train=lambda: open_step(Step.TRAIN))
     elif step is Step.TRAIN:
         train_step.render(view, show_dev, open_validate=lambda: open_step(Step.VALIDATE))
     elif step is Step.VALIDATE:
-        validate_step.render(show_dev)
+        validate_step.render(view, show_dev)
     else:
-        st.caption("This step is being built.")
+        ask_step.render(status, view, show_dev)
 
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")

@@ -11,3 +11,5 @@ CLOSE_ERROR = "close_error"               # why the API refused to close, shown 
 DATASET = "dataset"                       # the last dataset view received from the API
 EDITOR_TOKEN = "editor_token"             # part of the keys of the table and of Advanced: a new value resets them
 UPLOAD_ERROR = "upload_error"             # the message of a refused file, shown after the rerun
+CONVERSATION = "conversation"             # the turns of the Ask step and the job they belong to (asked once)
+ASK_ERROR = "ask_error"                   # the last question that failed, with the message: shown, never kept

@@ -28,7 +28,7 @@ from sds.vae.runtime import get_device
 from sds.vae.sampling import generate
 from sds.vae.training import Evaluation, evaluation_interval, split_validation, step_budget, train_vae
 from sds.validation.fidelity import fidelity_report
-from sds.validation.privacy import privacy_check
+from sds.validation.privacy import PrivacyCheckStopped, privacy_check
 
 logger = logging.getLogger("sds.api")
 
@@ -47,7 +47,8 @@ class Phase(str, Enum):
 
     TRAINING = "training"
     GENERATING = "generating"
-    VALIDATING = "validating"
+    COMPARING = "comparing"                  # fidelity report, the last phase before the first delivery
+    CHECKING_PRIVACY = "checking_privacy"    # the synthetic table is already in the session, behind the gate
 
 
 @dataclass(eq=False)
@@ -168,7 +169,11 @@ def start_training(session: Session, **train_options) -> Job:
 
 
 def run_pipeline(session: Session, job: Job, prepared, encoder, contract, plan: TrainingPlan) -> None:
-    """Body of the job thread: train → generate → validate, then write the outcome to the session."""
+    """Body of the job thread: train → generate → compare, first delivery, privacy check, second delivery.
+
+    The first delivery lets the Validate step show the comparison while the privacy check runs; the gate stays
+    closed until the second.
+    """
     try:
         x_train = encoder.transform(prepared.train)
         trained = train_vae(x_train, OutputLayout.from_contract(contract), loss=MIXED_SIGMA_LOSS,
@@ -180,12 +185,16 @@ def run_pipeline(session: Session, job: Job, prepared, encoder, contract, plan: 
         synthetic = generate(trained, contract, len(prepared.train))
         if job.stop_event.is_set():
             return finish(session, job, JobState.STOPPED)
-        job.phase = Phase.VALIDATING
+        job.phase = Phase.COMPARING
         fidelity = fidelity_report(synthetic, prepared.holdout, prepared.train, contract)
-        if job.stop_event.is_set():
+        if not deliver(session, job, trained, synthetic, fidelity):
             return finish(session, job, JobState.STOPPED)
-        privacy = privacy_check(encoder.transform(synthetic), x_train, encoder.transform(prepared.holdout), contract)
-        finish(session, job, JobState.DONE, results=(trained, synthetic, fidelity, privacy))
+        job.phase = Phase.CHECKING_PRIVACY
+        privacy = privacy_check(encoder.transform(synthetic), x_train, encoder.transform(prepared.holdout), contract,
+                                stop_event=job.stop_event)
+        finish(session, job, JobState.DONE, privacy=privacy)
+    except PrivacyCheckStopped:
+        finish(session, job, JobState.STOPPED)
     except (VaeError, DataEngineError) as error:
         finish(session, job, JobState.FAILED, error={"code": error.code, "message": error.message})
     except Exception:
@@ -193,14 +202,33 @@ def run_pipeline(session: Session, job: Job, prepared, encoder, contract, plan: 
         finish(session, job, JobState.FAILED, error={"code": "internal_error", "message": INTERNAL_ERROR_MESSAGE})
 
 
-def finish(session: Session, job: Job, state: JobState, *, results: tuple | None = None,
-           error: dict | None = None) -> None:
-    """End the job; write the results only if it is still the session's job and no stop was asked."""
+def deliver(session: Session, job: Job, trained, synthetic, fidelity) -> bool:
+    """First delivery: model, synthetic table and comparison, if it is still the session's job and no stop was asked.
+
+    Returns:
+        Whether they were written (``False``: the job should end as stopped).
+    """
+    with session.lock:
+        if job.stop_event.is_set() or session.job is not job:
+            return False
+        session.trained, session.synthetic, session.fidelity = trained, synthetic, fidelity
+        return True
+
+
+def finish(session: Session, job: Job, state: JobState, *, privacy=None, error: dict | None = None) -> None:
+    """End the job; only if it is still the session's job, write the privacy report or drop the first delivery.
+
+    A job stopped or failed after the first delivery leaves no synthetic table without its privacy report (the gate
+    would stay closed for ever): the session goes back to ``Stage.PREPARED`` and the user trains again.
+    """
     with session.lock:
         if state is JobState.DONE and job.stop_event.is_set():
             state = JobState.STOPPED                  # Stop pressed during the last phase: the results are dropped
-        if state is JobState.DONE and session.job is job:
-            session.trained, session.synthetic, session.fidelity, session.privacy = results
+        if session.job is job:
+            if state is JobState.DONE:
+                session.privacy = privacy
+            else:
+                session.clear_from(Stage.TRAINED)
         job.error, job.ended = error, time.monotonic()
         job.state = state                             # last: whoever sees "done" finds the results
 
@@ -262,13 +290,17 @@ def job_view(session: Session, job_id: str) -> dict:
 
 
 def session_view(session: Session) -> dict:
-    """The stage and the latest job (running or ended, else ``None``): the UI resumes from it after a refresh.
+    """The stage, the latest job (running or ended, else ``None``) and the privacy gate: the UI resumes from it.
 
     A page refresh opens a new Streamlit session, which has lost the ``job_id``, while the job goes on here.
+    ``gate_passed`` is ``None`` until the synthetic table is validated: the UI opens the Ask step only when it is
+    ``True``.
     """
     with session.lock:
         job = session.job
-        return {"stage": session.stage.name.lower(), "job": describe_job(job) if job is not None else None}
+        validated = session.stage is Stage.VALIDATED
+        return {"stage": session.stage.name.lower(), "job": describe_job(job) if job is not None else None,
+                "gate_passed": session.privacy.passed if validated else None}
 
 
 def describe_job(job: Job) -> dict:

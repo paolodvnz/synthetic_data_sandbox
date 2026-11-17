@@ -218,14 +218,15 @@ def started(monkeypatch):
     stop(processes, WAIT_SECONDS)
 
 
-def fake_commands(monkeypatch, tmp_path, api: Command | None = None, *, closing: str | None = None):
-    """Fake API and UI; ``closing`` ("api" or "ui"): that one ends with the closing code after a while."""
+def fake_commands(monkeypatch, tmp_path, api: Command | None = None, ui: Command | None = None, *,
+                  closing: str | None = None):
+    """Fake API and UI (or the commands given); ``closing`` ("api" or "ui"): that one ends with the closing code."""
     api_port, ui_port = free_port(), free_port()
     (tmp_path / "api").mkdir()
     (tmp_path / "ui").mkdir()
     server = {name: closing_server if closing == name else fake_server for name in ("api", "ui")}
     api = api or server["api"](tmp_path / "api", api_port)
-    ui = server["ui"](tmp_path / "ui", ui_port)
+    ui = ui or server["ui"](tmp_path / "ui", ui_port)
     monkeypatch.setattr(launcher, "build_commands", lambda *, dev, api_port, ui_port: (api, ui))
     return ["--api-port", str(api_port), "--ui-port", str(ui_port)], api_port, ui_port
 
@@ -271,6 +272,17 @@ def test_api_that_never_answers_stops_everything(monkeypatch, tmp_path, started,
     assert launcher.main(argv) == 1
     assert len(started) == 1                                    # the UI was never started
     assert "API" in capsys.readouterr().err
+
+
+def test_ui_that_never_answers_stops_the_api_too(monkeypatch, tmp_path, started, capsys):
+    broken = Command("ui", [sys.executable, "-c", "raise SystemExit(2)"], {}, tmp_path)
+    argv, _, _ = fake_commands(monkeypatch, tmp_path, ui=broken)
+    opened = []
+    monkeypatch.setattr(launcher.webbrowser, "open", opened.append)
+    assert launcher.main(argv) == 1
+    api, _ = started
+    assert api.poll() is not None and opened == []             # the API was stopped, no page was opened
+    assert "UI" in capsys.readouterr().err
 
 
 def test_closing_from_the_page_stops_both_with_success(monkeypatch, tmp_path, started, capsys):

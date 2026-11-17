@@ -47,7 +47,7 @@ def test_stage_is_the_last_complete_one(stage):
 
 def test_a_partly_filled_stage_does_not_count():
     session = filled_up_to(Stage.PREPARED)
-    session.fidelity = MARKER          # validated needs both reports
+    session.synthetic = MARKER         # generated needs the trained model too
     assert session.stage is Stage.PREPARED
 
 

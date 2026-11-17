@@ -106,8 +106,39 @@ def validation_panels() -> None:
         st.json({key: value for key, value in fidelity.items()
                  if key not in {"columns", "association_real", "association_synthetic", "histograms"}}, expanded=1)
     with st.expander("Developer: privacy report (DCR and exact copies)"):
-        st.dataframe(privacy_table(privacy), hide_index=True, width="stretch")
-        st.json(privacy, expanded=1)
+        if privacy is None:
+            st.caption("The privacy check is still running.")
+        else:
+            st.dataframe(privacy_table(privacy), hide_index=True, width="stretch")
+            st.json(privacy, expanded=1)
     st.download_button("Download the full reports (JSON)", data=json.dumps(reports, indent=2),
                        file_name="validation_reports.json", mime="application/json", key="download_reports",
                        on_click="ignore")
+
+
+def llm_panel() -> None:
+    """Ask step: provider and model, the latest question with its raw answers, the full system prompt."""
+    try:
+        llm = api_client.dev_llm()
+    except ApiRefused as error:
+        st.error(error.message)
+        return
+    with st.expander("Developer: language model (GET /dev/llm)"):
+        address = llm["base_url"] or "OpenAI (default address)"
+        st.markdown(f"Model `{llm['model']}` · address `{address}` · history sent: the last "
+                    f"{llm['max_history_turns']} questions")
+        last = llm["last"]
+        if last is None:
+            st.caption("No question asked yet.")
+        else:
+            fix = "corrected once" if last["corrected"] else "not corrected"
+            st.markdown(f"**Latest question**: outcome `{last['outcome']}` · {fix} · {last['seconds']} s in all")
+            if last["error"] is not None:
+                st.code(f"{last['error']['code']}: {last['error']['detail'] or last['error']['message']}",
+                        language="text")
+            for number, call in enumerate(last["calls"], start=1):
+                st.markdown(f"Call {number}: {call['prompt_tokens']} + {call['completion_tokens']} tokens · "
+                            f"{call['seconds']} s · finish `{call['finish_reason']}`")
+                st.code(call["content"], language="markdown")
+        st.markdown("**System prompt** (with the schema of the synthetic data)")
+        st.code(llm["system_prompt"] or "No dataset prepared yet.", language="text")

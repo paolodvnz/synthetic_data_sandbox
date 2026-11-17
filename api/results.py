@@ -12,17 +12,22 @@ from api.api_config import (
     DEFAULT_DOWNLOAD_STEM,
     GATE_ADVICE,
     PREVIEW_ROWS,
+    PRIVACY_PENDING_MESSAGE,
+    STATUS_CONFLICT,
     STATUS_FORBIDDEN,
     SYNTHETIC_SUFFIX,
 )
 from api.errors import ApiError
 from api.serialization import to_jsonable
 from api.session import Session, Stage
+from sds.data_engine.decoding import in_file_format
 
 
-def gate_view(session: Session) -> dict:
-    """Outcome of the privacy gate, with what to do in the app when it fails."""
+def gate_view(session: Session) -> dict | None:
+    """Outcome of the privacy gate, with what to do in the app when it fails; ``None`` while the check runs."""
     privacy = session.privacy
+    if privacy is None:
+        return None
     return {"passed": privacy.passed, "failures": to_jsonable(privacy.failures),
             "advice": None if privacy.passed else GATE_ADVICE}
 
@@ -30,17 +35,21 @@ def gate_view(session: Session) -> dict:
 def validation_view(session: Session) -> dict:
     """What the Validate step shows: gate, non-blocking warnings, data for the charts, a synthetic preview.
 
+    Available from ``Stage.GENERATED``: while the privacy check runs, ``gate`` is ``None``, the warnings are the
+    fidelity ones only and there is no preview.
+
     Raises:
-        ApiError: 409 with the code of the first missing stage (``not_validated`` after a training).
+        ApiError: 409 with the code of the first missing stage (``not_trained`` before a training).
     """
     with session.lock:
-        session.require(Stage.VALIDATED)
+        session.require(Stage.GENERATED)
         fidelity, privacy, synthetic = session.fidelity, session.privacy, session.synthetic
-        warnings = ([{"source": "privacy", **to_jsonable(issue)} for issue in privacy.warnings]
+        privacy_warnings = privacy.warnings if privacy is not None else []
+        warnings = ([{"source": "privacy", **to_jsonable(issue)} for issue in privacy_warnings]
                     + [{"source": "fidelity", **to_jsonable(issue)} for issue in fidelity.warnings])
         preview = None
-        if privacy.passed:
-            head = synthetic.head(PREVIEW_ROWS)
+        if privacy is not None and privacy.passed:
+            head = in_file_format(synthetic.head(PREVIEW_ROWS), session.contract)   # the rows as downloaded
             preview = {"columns": to_jsonable(list(head.columns)), "rows": to_jsonable(head.to_numpy(dtype=object))}
         return {
             "gate": gate_view(session),
@@ -59,8 +68,12 @@ def require_gate(session: Session) -> None:
     """Check that the synthetic table may leave the app.
 
     Raises:
-        ApiError: 409 with the code of the first missing stage; 403 ``privacy_gate`` when the gate failed.
+        ApiError: 409 ``privacy_pending`` while the privacy check runs, else 409 with the code of the first missing
+            stage; 403 ``privacy_gate`` when the gate failed.
     """
+    job = session.job
+    if session.stage is Stage.GENERATED and job is not None and job.active:
+        raise ApiError(STATUS_CONFLICT, "privacy_pending", PRIVACY_PENDING_MESSAGE)
     session.require(Stage.VALIDATED)
     if not session.privacy.passed:
         reasons = " ".join(issue.message for issue in session.privacy.failures)
@@ -68,14 +81,16 @@ def require_gate(session: Session) -> None:
 
 
 def synthetic_csv(session: Session) -> bytes:
-    """The synthetic table as CSV bytes: separator of the uploaded file, UTF-8, no index, empty missing cells.
+    """The synthetic table as CSV bytes: separator and date formats of the uploaded file, UTF-8, no index, empty
+    missing cells.
 
     Raises:
         ApiError: See ``require_gate``.
     """
     with session.lock:
         require_gate(session)
-        return session.synthetic.to_csv(index=False, sep=session.inspection.separator).encode("utf-8")
+        table = in_file_format(session.synthetic, session.contract)       # the dates as in the uploaded file
+        return table.to_csv(index=False, sep=session.inspection.separator).encode("utf-8")
 
 
 def download_name(source_name: str) -> str:

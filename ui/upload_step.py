@@ -144,7 +144,7 @@ def show_dataset(data: dict, running: bool, open_train: Callable[[], None]) -> N
 def columns_table(data: dict, token: int, running: bool) -> dict[str, bool]:
     """The columns with a "Keep" tick; returns column name -> ticked."""
     st.subheader("Columns")
-    st.write("We suggest which columns to use. **Untick columns that identify people** (patient ID, name, tax "
+    st.write("We suggest which columns to use. **Untick columns that identify people** (an ID, a name, a tax "
              "code). You can also tick a column we left out.")
     table = columns_frame(data)
     edited = st.data_editor(table, column_config={"Keep": st.column_config.CheckboxColumn()},

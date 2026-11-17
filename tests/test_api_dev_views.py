@@ -272,6 +272,7 @@ def test_validation_details():
     assert view["privacy"]["passed"] == session.privacy.passed
     assert view["privacy"]["synthetic_percentile"] == pytest.approx(session.privacy.synthetic_percentile)
     assert [c["name"] for c in view["fidelity"]["columns"]] == [c.name for c in session.fidelity.columns]
+    assert [c["name"] for c in view["fidelity"]["less_faithful"]] == [c.name for c in session.fidelity.less_faithful]
 
 
 def test_validation_details_need_a_validation():

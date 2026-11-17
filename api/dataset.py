@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+import pandas as pd
+
 from api.api_config import DEFAULT_SOURCE_NAME, MAX_SOURCE_NAME_CHARS, N_EXAMPLES
 from api.serialization import to_jsonable
 from api.session import Session, Stage
@@ -22,6 +24,7 @@ from sds.data_engine import (
     prepare,
 )
 from sds.data_engine.inference import base_role
+from sds.data_engine.thresholds_config import ISO_DATE_FORMAT
 from sds.data_engine.types import USABLE_ROLES
 
 CASE_MERGE_CODE = "case_unified"
@@ -93,8 +96,11 @@ def change_choices(session: Session, data: dict) -> None:
         fit(session)
 
 
-def example_text(value) -> str:
-    """A value as the user wrote it: whole numbers without ``.0`` (a missing value makes pandas read them as floats)."""
+def example_text(value, date_format: str = ISO_DATE_FORMAT) -> str:
+    """A value as the user wrote it: whole numbers without ``.0`` (a missing value makes pandas read them as floats),
+    dates in the format of the file (no time of day: the app keeps whole days)."""
+    if isinstance(value, pd.Timestamp):
+        return value.strftime(date_format)
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
@@ -113,7 +119,7 @@ def column_view(session: Session, name: str) -> dict:
         "kept_role": kept_role,
         "fixed_reason": fixed_reason(info),
         "null_fraction": info.null_fraction,
-        "examples": [example_text(value) for value in examples],
+        "examples": [example_text(value, info.date_format or ISO_DATE_FORMAT) for value in examples],
         "final_role": final.role if final else None,
         "changed_by_user": bool(final and final.changed_by_user),
     }

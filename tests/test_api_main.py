@@ -17,6 +17,7 @@ from api.errors import ApiError
 from api.main import close_process, create_app
 from sds.config import CLOSABLE_ENV, CLOSED_BY_USER_EXIT_CODE, MAX_UPLOAD_MB
 from sds.data_engine import DataEngineError
+from sds.llm_analyst.llm_config import MAX_QUESTION_CHARS
 from sds.vae.layout import VaeError
 
 
@@ -28,7 +29,8 @@ def test_health(monkeypatch):
     monkeypatch.delenv(CLOSABLE_ENV, raising=False)
     response = client().get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "dev_mode": False, "max_upload_mb": MAX_UPLOAD_MB, "closable": False}
+    assert response.json() == {"status": "ok", "dev_mode": False, "max_upload_mb": MAX_UPLOAD_MB, "closable": False,
+                               "llm_configured": False, "max_question_chars": MAX_QUESTION_CHARS}
 
 
 # --- /shutdown ------------------------------------------------------------------------------

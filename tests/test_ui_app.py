@@ -1,5 +1,6 @@
 """Tests of the UI's HTTP client and of the page against a real HTTP server (Streamlit AppTest, no browser)."""
 
+import inspect
 import json
 import socket
 import sys
@@ -9,8 +10,9 @@ from streamlit.testing.v1 import AppTest
 
 from sds.config import PROJECT_ROOT
 from sds.launcher import Command, start, stop, wait_until_ready
-from ui.api_client import ApiUnavailable, api_url, health
+from ui.api_client import ApiRefused, ApiUnavailable, api_url, health
 from ui.ui_config import API_URL_ENV, DEFAULT_API_URL
+from ui_fake import PAGE_FUNCTIONS
 
 WAIT_SECONDS = 30
 APP = str(PROJECT_ROOT / "ui" / "app.py")
@@ -25,8 +27,9 @@ def free_port() -> int:
 @pytest.fixture
 def fake_api(tmp_path, monkeypatch):
     """A static server whose /health is the API's answer (dev mode on)."""
-    (tmp_path / "health").write_text(json.dumps({"status": "ok", "dev_mode": True, "max_upload_mb": 200, "closable": False}))
-    (tmp_path / "session").write_text(json.dumps({"stage": "empty", "job": None}))
+    (tmp_path / "health").write_text(json.dumps({"status": "ok", "dev_mode": True, "max_upload_mb": 200, "closable": False,
+                                                       "llm_configured": False, "max_question_chars": 500}))
+    (tmp_path / "session").write_text(json.dumps({"stage": "empty", "job": None, "gate_passed": None}))
     (tmp_path / "dev").mkdir()
     (tmp_path / "dev" / "samples").write_text(json.dumps([{"name": "adult", "available": True}]))
     port = free_port()
@@ -77,6 +80,54 @@ def test_app_explains_when_the_api_is_down(monkeypatch):
     app = AppTest.from_file(APP, default_timeout=WAIT_SECONDS).run()
     assert not app.exception
     assert "sds-app" in app.error[0].value and "Traceback" not in app.error[0].value
+
+
+def test_a_refusal_on_health_means_the_api_is_not_there(monkeypatch):
+    import ui.api_client
+
+    def refused(method, path, **kwargs):
+        raise ApiRefused(404, "not_found", "Not here.")       # another program on the port: the API never refuses
+
+    monkeypatch.setattr(ui.api_client, "call", refused)
+    with pytest.raises(ApiUnavailable):
+        health()
+
+
+# --- every function of the client calls a route the API has (the UI tests use the fake, which has no paths) ---------
+
+CLIENT_ARGUMENTS = {"content": b"a,b\n1,2\n", "name": "p.csv", "choices": {}, "job_id": "abc", "question": "Why?"}
+
+
+def test_the_fake_stands_for_every_client_function():
+    import ui.api_client
+
+    plumbing = {"api_url", "call", "request"}
+    public = {name for name, f in inspect.getmembers(ui.api_client, inspect.isfunction)
+              if f.__module__ == "ui.api_client"} - plumbing
+    assert public == set(PAGE_FUNCTIONS)
+
+
+@pytest.mark.parametrize("name", PAGE_FUNCTIONS)
+def test_every_client_function_calls_a_route_of_the_api(monkeypatch, name):
+    from starlette.routing import Match
+
+    import ui.api_client
+    from api.main import create_app
+
+    sent = []
+
+    class Answer:
+        content = b""
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(ui.api_client, "request", lambda method, path, **kwargs: sent.append((method, path)) or Answer())
+    function = getattr(ui.api_client, name)
+    function(**{p: CLIENT_ARGUMENTS[p] for p in inspect.signature(function).parameters})
+    [(method, path)] = sent
+    scope = {"type": "http", "method": method, "path": path, "root_path": ""}
+    assert any(route.matches(scope)[0] is Match.FULL for route in create_app(dev_mode=True).routes), f"{method} {path}"
 
 
 # --- the fake API of the UI tests answers like the real one ------------------------------------
@@ -166,3 +217,83 @@ def test_the_fake_training_answers_like_the_real_one():
     assert same_shape(details["privacy"], real_details["privacy"])
     assert same_shape(fake.stop_training(), real.post("/train/stop").json())
     assert same_shape(fake.get_session(), real.get("/session").json())
+
+
+def test_the_fake_ask_step_answers_like_the_real_one():
+    import dataclasses
+
+    from fastapi.testclient import TestClient
+
+    from api.ask import LlmAccess
+    from api.dataset import load_dataset
+    from api.main import create_app
+    from api.pipeline import start_training
+    from api.session import Session
+    from api_csv import make_csv
+    from llm_fake import FakeClient
+    from sds.llm_analyst.settings import LlmSettings
+    from sds.vae.model import Architecture
+    from ui_fake import FakeApi, dataset, job, turn
+
+    session = Session()
+    load_dataset(session, make_csv(), "p.csv")
+    start_training(session, max_steps=20, device="cpu",
+                   architecture=Architecture(hidden_dims=(16,), latent_dim=2)).thread.join(WAIT_SECONDS)
+    session.privacy = dataclasses.replace(session.privacy, passed=True, failures=[])
+    chart = "```python\nfig, ax = plt.subplots()\ndf['age'].plot.hist(ax=ax)\nprint(1)\n```\nAges."
+    app = create_app(dev_mode=True)
+    app.state.session = session
+    app.state.llm = LlmAccess(settings=LlmSettings(api_key="sk-test", model="m"), client=FakeClient(chart),
+                              problem=None)
+    real = TestClient(app)
+    fake = FakeApi({"stage": "validated", "job": job("done")}, dev_mode=True, data=dataset())
+    fake.llm_configured, fake.answers = True, [turn()]
+    assert same_shape(fake.health(), real.get("/health").json())
+    assert same_shape(fake.ask("q"), real.post("/ask", json={"question": "q"}).json())
+    assert same_shape(fake.get_conversation(), real.get("/conversation").json())
+    assert same_shape(fake.new_conversation(), real.post("/conversation/new").json())
+    ours, theirs = fake.dev_llm(), real.get("/dev/llm").json()
+    assert set(ours) == set(theirs)
+    assert same_shape(ours["last"], theirs["last"]) and same_shape(ours["last"]["calls"][0], theirs["last"]["calls"][0])
+
+
+def test_the_fake_privacy_check_answers_like_the_real_one(monkeypatch):
+    """While the real job is held in the privacy check, the fake's views have the same shape."""
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    import api.pipeline
+    from api.main import create_app
+    from api_csv import make_csv
+    from sds.vae.model import Architecture
+    from ui_fake import FakeApi, dataset, job
+
+    entered, release = threading.Event(), threading.Event()
+    real_check = api.pipeline.privacy_check
+
+    def held(*args, **kwargs):
+        entered.set()
+        assert release.wait(WAIT_SECONDS)
+        return real_check(*args, **kwargs)
+
+    monkeypatch.setattr(api.pipeline, "privacy_check", held)
+    real = TestClient(create_app(dev_mode=True))
+    real.app.state.train_options = {"max_steps": 20, "device": "cpu",
+                                    "architecture": Architecture(hidden_dims=(16,), latent_dim=2)}
+    real.post("/upload", params={"name": "p.csv"}, content=make_csv(), headers={"Content-Type": "text/csv"})
+    started = real.post("/train").json()
+    try:
+        assert entered.wait(WAIT_SECONDS)
+        fake = FakeApi({"stage": "generated", "job": job("running", phase="checking_privacy")}, data=dataset())
+        assert fake.get_session() == fake.get_session() | {"stage": real.get("/session").json()["stage"]}
+        assert same_shape(fake.get_session(), real.get("/session").json())
+        assert real.get(f"/status/{started['job_id']}").json()["phase"] == fake.get_status("abc")["phase"]
+        ours, theirs = fake.get_validation(), real.get("/validation").json()
+        assert set(ours) == set(theirs) and ours["gate"] is theirs["gate"] is None
+        assert ours["preview"] is theirs["preview"] is None
+        assert {w["source"] for w in theirs["warnings"]} <= {w["source"] for w in ours["warnings"]} == {"fidelity"}
+        assert fake.dev_validation()["privacy"] is real.get("/dev/validation").json()["privacy"] is None
+    finally:
+        release.set()
+        real.post("/train/stop")

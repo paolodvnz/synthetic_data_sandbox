@@ -9,7 +9,10 @@ from ui.api_client import ApiRefused
 PAGE_FUNCTIONS = ("health", "get_session", "reset", "upload", "get_dataset", "set_choices", "list_samples",
                   "load_sample", "dev_contract", "dev_decoding_check", "start_training", "get_status",
                   "stop_training", "dev_hyperparameters", "dev_training", "get_validation", "download_csv",
-                  "dev_validation", "shutdown")
+                  "dev_validation", "shutdown", "ask", "get_conversation", "new_conversation", "dev_llm")
+
+# A real 1x1 PNG, as /ask sends charts (base64).
+PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 
 def job(state: str = "running", *, step: int = 10, phase: str = "training", stop_requested: bool = False,
@@ -18,6 +21,32 @@ def job(state: str = "running", *, step: int = 10, phase: str = "training", stop
     return {"job_id": "abc", "state": state, "phase": phase, "step": step, "max_steps": 100,
             "train_loss": 1.0, "validation_loss": 1.1, "elapsed_seconds": 102.0, "stop_requested": stop_requested,
             "error": error}
+
+
+def turn(question: str = "How are ages spread?", *, kind: str = "chart", summary: dict | None = None,
+         notes: list[str] | None = None) -> dict:
+    """A turn as ``/ask`` returns it (a refusal has neither chart nor code, nor notes)."""
+    chart = kind == "chart"
+    return {"question": question, "kind": kind,
+            "text": "The histogram shows how ages are spread." if chart else "I cannot name the patients.",
+            "image_png": PIXEL_PNG if chart else None, "summary": summary,
+            "code": "fig, ax = plt.subplots()\ndf['age'].plot.hist(ax=ax)" if chart else None, "corrected": False,
+            "notes": list(notes or [])}
+
+
+def llm_details(*, error: bool = False) -> dict:
+    """A ``/dev/llm`` view after one question (fixed once, or failed twice)."""
+    calls = [{"content": "```python\ndf['glucose']\n```", "finish_reason": "stop", "prompt_tokens": 700,
+              "completion_tokens": 90, "seconds": 1.2},
+             {"content": "```python\nfig, ax = plt.subplots()\n```\nFixed.", "finish_reason": "stop",
+              "prompt_tokens": 820, "completion_tokens": 60, "seconds": 0.9}]
+    failure = {"code": "runtime_error", "message": "The generated code failed while drawing the chart.",
+               "detail": "KeyError: 'glucose'"}
+    return {"configured": True, "model": "test-model", "base_url": "https://provider.test/v1",
+            "system_prompt": "You are a data analyst helping a person who cannot program.",
+            "max_history_turns": 3,
+            "last": {"question": "How is glucose spread?", "outcome": "runtime_error" if error else "chart",
+                     "corrected": not error, "error": failure if error else None, "calls": calls, "seconds": 3.4}}
 
 
 def evaluation(step: int) -> dict:
@@ -72,14 +101,18 @@ ADVICE = "To fix it, go back to step 1 (Upload) and untick the columns that iden
 COLUMNS = ["age", "sex", "visits"]
 
 
-def validation(*, passed: bool = True, warnings: bool = True) -> dict:
-    """A ``/validation`` view: three columns, one numeric histogram and one categorical."""
-    return {
+def validation(*, passed: bool | None = True, warnings: bool = True) -> dict:
+    """A ``/validation`` view: three columns, one numeric histogram and one categorical.
+
+    ``passed=None``: the privacy check is still running (no gate, no privacy warning, no preview).
+    """
+    checking = passed is None
+    view = {
         "gate": {"passed": passed, "failures": [] if passed else [FAILURE], "advice": None if passed else ADVICE},
         "warnings": ([{"source": "privacy", "code": "near_copies_unchecked", "message": "Many real people share "
                        "the same values: near copies cannot be checked.", "column": None},
-                      {"source": "fidelity", "code": "distributions_differ", "message": "Some columns are spread "
-                       "differently (most: age).", "column": "age"}] if warnings else []),
+                      {"source": "fidelity", "code": "columns_differ", "message": "Some columns differ: 'age' (its "
+                       "values are spread differently).", "column": "age"}] if warnings else []),
         "associations": {"columns": COLUMNS,
                          "real": [[1.0, 0.3, 0.5], [0.3, 1.0, 0.1], [0.5, 0.1, 1.0]],
                          "synthetic": [[1.0, 0.25, 0.45], [0.25, 1.0, 0.2], [0.45, 0.2, 1.0]]},
@@ -91,6 +124,10 @@ def validation(*, passed: bool = True, warnings: bool = True) -> dict:
         "n_rows": 790,
         "download_name": "patients_synthetic.csv",
     }
+    if checking:
+        view["gate"] = None
+        view["warnings"] = [w for w in view["warnings"] if w["source"] == "fidelity"]
+    return view
 
 
 def frame(matrix: list[list[float]]) -> dict:
@@ -98,8 +135,8 @@ def frame(matrix: list[list[float]]) -> dict:
     return {"columns": COLUMNS, "index": COLUMNS, "values": matrix}
 
 
-def validation_details(*, passed: bool = True) -> dict:
-    """A ``/dev/validation`` view: the full reports."""
+def validation_details(*, passed: bool | None = True) -> dict:
+    """A ``/dev/validation`` view: the full reports (``passed=None``: no privacy report yet)."""
     data = validation(passed=passed)
     fidelity = {
         "n_compared": 198,
@@ -114,7 +151,7 @@ def validation_details(*, passed: bool = True) -> dict:
         "association_real": frame(data["associations"]["real"]),
         "association_synthetic": frame(data["associations"]["synthetic"]),
         "histograms": data["histograms"], "unseen_pairs_synthetic": 0.01, "unseen_pairs_real": 0.005,
-        "warnings": [{"code": "distributions_differ", "message": "Some columns are spread differently.",
+        "warnings": [{"code": "columns_differ", "message": "Some columns are spread differently.",
                       "column": "age"}],
         "less_faithful": [],
     }
@@ -122,7 +159,7 @@ def validation_details(*, passed: bool = True) -> dict:
                "synthetic_exact_share": 0.0, "holdout_exact_share": 0.0, "exact_share_limit": 0.01,
                "train_closer_share": 0.81, "expected_train_closer_share": 0.8,
                "failures": [] if passed else [FAILURE], "warnings": []}
-    return {"fidelity": fidelity, "privacy": privacy}
+    return {"fidelity": fidelity, "privacy": None if passed is None else privacy}
 
 
 class FakeApi:
@@ -135,9 +172,14 @@ class FakeApi:
         self.refuse_upload: ApiRefused | None = None
         self.dataset_reads = 0
         self.passed, self.downloads = True, 0
+        self.llm_configured = False
+        self.turns, self.answers, self.questions = [], [], []    # answers: turns or ApiRefused, in order
+        self.conversation_reads, self.new_conversations = 0, 0
+        self.llm_error = False
 
     def health(self) -> dict:
-        return {"status": "ok", "dev_mode": self.dev_mode, "max_upload_mb": 200, "closable": self.closable}
+        return {"status": "ok", "dev_mode": self.dev_mode, "max_upload_mb": 200, "closable": self.closable,
+                "llm_configured": self.llm_configured, "max_question_chars": 500}
 
     def shutdown(self) -> dict:
         if self.refuse_shutdown:
@@ -146,7 +188,8 @@ class FakeApi:
         return {"closing": True}
 
     def get_session(self) -> dict:
-        return self.view
+        gate = self.passed if self.view["stage"] == "validated" else None
+        return {"gate_passed": gate, **self.view}
 
     def reset(self) -> dict:
         self.resets += 1
@@ -204,6 +247,8 @@ class FakeApi:
     def stop_training(self) -> dict:
         self.stops = getattr(self, "stops", 0) + 1
         self.view["job"] = self.view["job"] | {"state": "stopped", "stop_requested": True}
+        if self.view["stage"] == "generated":
+            self.view["stage"] = "prepared"         # as the API: a stop during the privacy check drops the table
         return copy.deepcopy(self.view["job"])
 
     def dev_hyperparameters(self) -> dict:
@@ -213,7 +258,7 @@ class FakeApi:
                            "eval_every": 150, "evaluations": 20},
                 "kl": {"warmup_steps": 300, "beta": 1.0},
                 "optimizer": {"learning_rate": 0.001, "weight_decay": 1e-05, "batch_size": 256},
-                "early_stopping": {"patience": 10, "from_step": 300}, "loss": "mixed_sigma", "device": "cpu"}
+                "early_stopping": {"patience": 20, "from_step": 300}, "loss": "mixed_sigma", "device": "cpu"}
 
     def dev_training(self) -> dict:
         if self.view["job"] is None:
@@ -225,10 +270,14 @@ class FakeApi:
                 "result": {"best_step": 20, "stopped_early": current["step"] < current["max_steps"],
                            "cancelled": False} if done else None}
 
+    def checking(self) -> bool:
+        """The stage the API reports while the privacy check runs."""
+        return self.view["stage"] == "generated"
+
     def get_validation(self) -> dict:
-        if self.view["stage"] != "validated":
-            raise ApiRefused(409, "not_validated", "Check the synthetic data first (Validate).")
-        return validation(passed=self.passed)
+        if self.view["stage"] not in {"generated", "validated"}:
+            raise ApiRefused(409, "not_trained", "Train the model first.")
+        return validation(passed=None if self.checking() else self.passed)
 
     def download_csv(self) -> bytes:
         self.downloads += 1
@@ -237,7 +286,7 @@ class FakeApi:
         return b"age;sex;visits\n40;F;2\n"
 
     def dev_validation(self) -> dict:
-        return validation_details(passed=self.passed)
+        return validation_details(passed=None if self.checking() else self.passed)
 
     def dev_contract(self) -> dict:
         return {"contract": {"version": 3, "width": 7}, "llm_schema": [{"name": "age", "type": "numeric"}]}
@@ -245,6 +294,26 @@ class FakeApi:
     def dev_decoding_check(self) -> dict:
         return {"n_checked": 790, "identical_share": {"age": 1.0, "sex": 0.98},
                 "random_rows": {"columns": ["age", "sex"], "rows": [[40, "F"], [61, "M"], [25, "F"]]}}
+
+    def ask(self, question: str) -> dict:
+        self.questions.append(question)
+        answer = self.answers.pop(0)
+        if isinstance(answer, ApiRefused):
+            raise answer
+        self.turns.append(answer)
+        return copy.deepcopy(answer)
+
+    def get_conversation(self) -> dict:
+        self.conversation_reads += 1
+        return {"turns": copy.deepcopy(self.turns)}
+
+    def new_conversation(self) -> dict:
+        self.new_conversations += 1
+        self.turns = []
+        return {"turns": []}
+
+    def dev_llm(self) -> dict:
+        return llm_details(error=self.llm_error)
 
 
 def install(monkeypatch, api: FakeApi) -> FakeApi:

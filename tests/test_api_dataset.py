@@ -2,12 +2,13 @@
 
 import json
 
+import pandas as pd
 import pytest
 
 from api.dataset import DEFAULT_SOURCE_NAME, N_EXAMPLES, change_choices, dataset_view, load_dataset
 from api.errors import ApiError
 from api.session import Session, Stage
-from api_csv import all_cells, make_csv
+from api_csv import all_cells, dated_csv, make_csv
 from sds.data_engine import DataEngineError
 
 MARKER = object()
@@ -229,3 +230,13 @@ def test_examples_of_whole_numbers_have_no_decimals():
     columns = {c["name"]: c for c in dataset_view(session)["columns"]}
     assert columns["age"]["examples"] == ["18", "19", "20"]
     assert columns["weight"]["examples"] == ["70.5", "71.5", "72.5"]
+
+
+@pytest.mark.parametrize("date_format", ["%d/%m/%Y", "%m-%d-%Y", "%Y-%m-%d"])
+def test_examples_of_dates_are_written_as_in_the_file(date_format):
+    # Not "2024-01-01 00:00:00": the examples show the values as the user wrote them.
+    session = Session()
+    load_dataset(session, dated_csv(date_format), "visits.csv")
+    columns = {c["name"]: c for c in dataset_view(session)["columns"]}
+    days = pd.date_range("2024-01-01", periods=N_EXAMPLES, freq="D")
+    assert columns["visit"]["examples"] == [day.strftime(date_format) for day in days]

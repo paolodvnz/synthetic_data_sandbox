@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api import dev
+from api.ask import LlmAccess, ask_question, conversation_view, new_conversation, status_of
 from api.api_config import (
     DEV_MODE_ENV,
     INTERNAL_ERROR_MESSAGE,
@@ -35,6 +36,8 @@ from api.results import content_disposition, download_name, synthetic_csv, valid
 from api.session import Session
 from sds.config import CLOSABLE_ENV, CLOSED_BY_USER_EXIT_CODE, MAX_UPLOAD_MB
 from sds.data_engine import DataEngineError
+from sds.llm_analyst.errors import AnalystError
+from sds.llm_analyst.llm_config import MAX_QUESTION_CHARS
 from sds.vae.layout import VaeError
 
 logger = logging.getLogger("sds.api")
@@ -78,6 +81,10 @@ def add_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(VaeError)
     async def vae_error(request: Request, error: VaeError) -> JSONResponse:
         return error_response(STATUS_UNPROCESSABLE, error.code, error.message)
+
+    @app.exception_handler(AnalystError)
+    async def analyst_error(request: Request, error: AnalystError) -> JSONResponse:
+        return error_response(status_of(error.code), error.code, error.message)    # never the detail
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -124,6 +131,8 @@ def create_app(dev_mode: bool | None = None, closable: bool | None = None) -> Fa
         closable: Whether ``/shutdown`` may end the process (``sds-app`` then stops the UI); ``None`` reads
             ``SDS_CLOSABLE``, set by ``sds-app``.
 
+    The ``LLM_*`` settings are read here, once (``app.state.llm``): change ``.env``, then restart the app.
+
     Returns:
         The FastAPI app; its session is ``app.state.session``.
     """
@@ -131,14 +140,17 @@ def create_app(dev_mode: bool | None = None, closable: bool | None = None) -> Fa
     app.state.session = Session()
     app.state.dev_mode = dev_mode_from_environment() if dev_mode is None else dev_mode
     app.state.closable = flag_from_environment(CLOSABLE_ENV) if closable is None else closable
+    app.state.llm = LlmAccess.from_environment()
     app.state.train_options = {}          # tests only (shorter trainings): the user has no training levers
     add_error_handlers(app)
 
     @app.get("/health")
     def health() -> dict:
-        """Liveness check; tells the UI the developer mode, the upload limit and whether "Close" is possible."""
+        """Liveness check; tells the UI the developer mode, the upload limit, whether "Close" is possible and
+        whether questions can be asked (``llm_configured``) and how long they may be."""
         return {"status": "ok", "dev_mode": app.state.dev_mode, "max_upload_mb": MAX_UPLOAD_MB,
-                "closable": app.state.closable}
+                "closable": app.state.closable, "llm_configured": app.state.llm.configured,
+                "max_question_chars": MAX_QUESTION_CHARS}
 
     @app.post("/upload")
     async def upload(request: Request, name: str | None = None) -> dict:
@@ -190,11 +202,30 @@ def create_app(dev_mode: bool | None = None, closable: bool | None = None) -> Fa
 
     @app.get("/download")
     def download() -> Response:
-        """The synthetic CSV, built in memory; 403 ``privacy_gate`` until the gate passes."""
+        """The synthetic CSV, built in memory; 409 ``privacy_pending`` during the check, 403 ``privacy_gate``
+        if it failed."""
         session = app.state.session
         data = synthetic_csv(session)
         return Response(content=data, media_type="text/csv",       # Starlette adds "; charset=utf-8"
                         headers={"Content-Disposition": content_disposition(download_name(session.source_name))})
+
+    @app.post("/ask")
+    def ask(question: str = Body(..., embed=True)) -> dict:
+        """Answer a question about the synthetic table (chart + explanation); behind the privacy gate.
+
+        Synchronous (seconds, minutes at worst): run in a worker thread, outside the session lock.
+        """
+        return ask_question(app.state.session, question, app.state.llm)
+
+    @app.get("/conversation")
+    def conversation() -> dict:
+        """The answered questions of the current conversation."""
+        return conversation_view(app.state.session)
+
+    @app.post("/conversation/new")
+    def conversation_new() -> dict:
+        """Start a new conversation: the questions go, the model and the synthetic table stay."""
+        return new_conversation(app.state.session)
 
     @app.post("/reset")
     def reset() -> dict:

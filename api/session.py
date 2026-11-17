@@ -30,8 +30,8 @@ STAGE_FIELDS: dict[Stage, tuple[str, ...]] = {
     Stage.INSPECTED: ("source_name", "source_bytes", "inspection", "case_merges", "choices", "schema"),
     Stage.PREPARED: ("prepared", "encoder", "contract"),
     Stage.TRAINED: ("trained",),
-    Stage.GENERATED: ("synthetic",),
-    Stage.VALIDATED: ("fidelity", "privacy"),
+    Stage.GENERATED: ("synthetic", "fidelity"),    # the comparison is shown while the privacy check runs
+    Stage.VALIDATED: ("privacy",),
 }
 
 # Error returned by ``require`` when this stage is the first one missing.
@@ -54,18 +54,26 @@ class Session:
             ``case_merges`` are the merges of the default inspection, shown whatever the option.
         prepared, encoder, contract: Split, fitted encoder and schema contract (``Stage.PREPARED``).
         trained: The trained VAE (``Stage.TRAINED``).
-        synthetic: The synthetic table (``Stage.GENERATED``).
-        fidelity, privacy: The validation reports (``Stage.VALIDATED``).
+        synthetic, fidelity: The synthetic table and its comparison with the real data (``Stage.GENERATED``).
+        privacy: The privacy report, which opens the gate (``Stage.VALIDATED``).
         problem: ``{"code", "message"}`` of the blocking problem that stopped the preparation, else ``None``
             (not a stage: the user fixes it by changing the choices).
         job: The latest training job (``api.pipeline.Job``), running or ended, else ``None``. Not a stage: its
-            results become stage objects only when it ends well.
+            results become stage objects in two deliveries (up to ``Stage.GENERATED``, then the privacy report),
+            and are dropped if it is stopped or fails before the second.
+        conversation: The questions asked about the current synthetic table (``api.ask.Turn``). Not a stage:
+            dropped (replaced by a new list) whenever the synthetic table may change.
+        last_question: What happened to the latest question, for the developer panel (``api.ask.LastQuestion``).
+        ask_lock: Held while a question is answered, outside ``lock``: one question at a time.
     """
 
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.problem: dict | None = None
         self.job = None
+        self.conversation: list = []
+        self.last_question = None
+        self.ask_lock = threading.Lock()
         for names in STAGE_FIELDS.values():
             for name in names:
                 setattr(self, name, None)
@@ -88,6 +96,8 @@ class Session:
         """
         if stage is Stage.EMPTY:
             raise ValueError("Stage.EMPTY has no objects to clear")
+        self.conversation = []                    # its answers were drawn on the synthetic table being dropped
+        self.last_question = None
         for each, names in STAGE_FIELDS.items():
             if each >= stage:
                 for name in names:
@@ -121,11 +131,11 @@ class Session:
                            "A dataset is already loaded: press Start over to use another file.")
 
     def require_idle(self) -> None:
-        """Check that no training job is running (the dataset and the choices cannot change under it).
+        """Check that no job is running, privacy check included (the dataset and the choices cannot change under it).
 
         Raises:
             ApiError: 409 ``training_running``.
         """
         if self.job is not None and self.job.active:
             raise ApiError(STATUS_CONFLICT, "training_running",
-                           "A training is running: wait for it to finish or press Stop first.")
+                           "The app is still working on the synthetic data: wait for it to finish or press Stop first.")
